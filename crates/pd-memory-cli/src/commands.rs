@@ -18,6 +18,7 @@ use pd_memory_hooks::HookOutput;
 use serde_json::{json, Value};
 
 use crate::config_loader::{self, GlobalOptions};
+use crate::host::Host;
 
 /// Resolve config + build the engine for commands that need a model provider.
 fn open_engine(options: &GlobalOptions) -> Result<Arc<MemoryEngine>> {
@@ -81,13 +82,13 @@ pub fn serve_mcp(options: &GlobalOptions) -> Result<()> {
 ///
 /// This command is intentionally infallible from the host's point of view: any
 /// internal failure is logged to stderr and downgraded to `{"continue":true}`.
-pub fn hook(options: &GlobalOptions, workbuddy: bool) {
-    let output = hook_output_from_stdin(options, workbuddy);
+pub fn hook(options: &GlobalOptions, host: Option<Host>) {
+    let output = hook_output_from_stdin(options, host);
     print!("{}", pd_memory_hooks::render_output(&output));
     let _ = std::io::stdout().flush();
 }
 
-fn hook_output_from_stdin(options: &GlobalOptions, workbuddy: bool) -> HookOutput {
+fn hook_output_from_stdin(options: &GlobalOptions, host: Option<Host>) -> HookOutput {
     let mut raw = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut raw) {
         log::error!("could not read hook stdin ({error}); continuing");
@@ -104,16 +105,15 @@ fn hook_output_from_stdin(options: &GlobalOptions, workbuddy: bool) -> HookOutpu
     config_loader::apply_hook_workspace(&mut config, &input);
     // Acquire the host lock before opening the engine, so each subprocess sees
     // state committed by the preceding capture / flush / recall.
-    let session = if workbuddy {
-        match crate::workbuddy::Session::lock(&config, &input) {
+    let session = match host {
+        Some(host) => match crate::host::Session::lock(host, &config, &input) {
             Ok(session) => Some(session),
             Err(error) => {
-                log::warn!("WorkBuddy hook lock failed ({error}); continuing");
+                log::warn!("{host:?} hook lock failed ({error}); continuing");
                 return HookOutput::continue_only();
             }
-        }
-    } else {
-        None
+        },
+        None => None,
     };
     let event = input.event().to_string();
     let engine = match config_loader::build_engine_lenient(&config, &format!("hook:{event}")) {

@@ -89,6 +89,78 @@ impl Harness {
         )
     }
 
+    fn codex_hook(&self, event: &str, session: &str, extra: serde_json::Value) -> Output {
+        // Codex 0.154 sends every field, with `null` for an absent transcript.
+        let mut input = serde_json::json!({
+            "hook_event_name": event, "session_id": session, "transcript_path": null,
+            "cwd": self.root(), "model": "gpt-test", "permission_mode": "default",
+        });
+        input
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        self.run_with_stdin(
+            &["--workspace", "integration", "hook", "--codex"],
+            &input.to_string(),
+        )
+    }
+
+    /// Synthetic Codex rollout with injected host context around one turn.
+    fn codex_rollout(&self, user: &str, answer: &str) -> std::path::PathBuf {
+        let path = self.root().join("rollout-2026-10-19T09-15-23-test.jsonl");
+        let line = |kind: &str, payload: serde_json::Value| {
+            serde_json::json!({"timestamp":"2026-10-19T09:15:23.000Z","type":kind,"payload":payload})
+                .to_string()
+        };
+        let message = |role: &str, phase: Option<&str>, text: &str| {
+            let block = if role == "assistant" {
+                "output_text"
+            } else {
+                "input_text"
+            };
+            let mut payload = serde_json::json!({"type":"message","role":role,
+                "content":[{"type":block,"text":text}]});
+            if let Some(phase) = phase {
+                payload["phase"] = phase.into();
+            }
+            line("response_item", payload)
+        };
+        let lines = [
+            line(
+                "session_meta",
+                serde_json::json!({"id":"codex-old","cwd":"/repo"}),
+            ),
+            message(
+                "developer",
+                None,
+                "<permissions instructions>sandboxed</permissions instructions>",
+            ),
+            message(
+                "user",
+                None,
+                "# AGENTS.md instructions for /repo\n\nCODEX-AGENTS-SECRET",
+            ),
+            message(
+                "user",
+                None,
+                "<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>",
+            ),
+            message("user", None, user),
+            message("assistant", Some("commentary"), "CODEX-COMMENTARY: looking"),
+            message("assistant", Some("final_answer"), answer),
+        ];
+        std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+        path
+    }
+
+    fn queue(&self) -> String {
+        std::fs::read_to_string(
+            self.root()
+                .join("workspaces/integration/control/l0_sessions.jsonl"),
+        )
+        .unwrap_or_default()
+    }
+
     fn capture(&self, session: &str, fact: &str) {
         let output = self.run_with_stdin(
             &["--workspace", "integration", "add", "--session", session],
@@ -300,6 +372,130 @@ fn workbuddy_concurrent_first_prompts_do_not_duplicate_flush() {
     )
     .unwrap();
     assert_eq!(state["indexTraces"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn codex_stop_captures_rollout_and_prints_only_continue() {
+    let harness = Harness::new();
+    let rollout = harness.codex_rollout(
+        "Always remember the Boreal release code CX-STOP-3141.",
+        "Noted: CX-STOP-3141.",
+    );
+    let output = harness.codex_hook(
+        "Stop",
+        "codex-old",
+        serde_json::json!({"transcript_path": rollout, "turn_id": "t1",
+            "stop_hook_active": false, "last_assistant_message": "Noted: CX-STOP-3141."}),
+    );
+    assert!(output.status.success());
+    // Codex's Stop output schema rejects unknown fields.
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "{\"continue\":true}\n"
+    );
+    assert_eq!(harness.pending(), 1);
+    let queue = harness.queue();
+    assert!(queue.contains("CX-STOP-3141"));
+    assert!(queue.contains("hook:Stop"));
+    for injected in [
+        "CODEX-AGENTS-SECRET",
+        "environment_context",
+        "permissions",
+        "CODEX-COMMENTARY",
+    ] {
+        assert!(!queue.contains(injected), "{injected} leaked into capture");
+    }
+}
+
+#[test]
+fn codex_session_end_captures_without_flush_and_first_recall_drains() {
+    let harness = Harness::new();
+    let rollout = harness.codex_rollout(
+        "Always remember the Boreal release code CX-END-2718.",
+        "Noted.",
+    );
+    let output = harness.codex_hook(
+        "SessionEnd",
+        "codex-old",
+        serde_json::json!({"transcript_path": rollout, "reason": "other"}),
+    );
+    assert!(output.status.success());
+    assert_eq!(stdout_json(&output), serde_json::json!({"continue": true}));
+    assert!(harness.queue().contains("hook:SessionEnd"));
+    assert_eq!(
+        harness.pending(),
+        1,
+        "SessionEnd must not flush under Codex"
+    );
+
+    let start = harness.codex_hook(
+        "SessionStart",
+        "codex-new",
+        serde_json::json!({"source": "startup"}),
+    );
+    assert_eq!(
+        stdout_json(&start)["hookSpecificOutput"]["hookEventName"],
+        "SessionStart"
+    );
+    assert_eq!(harness.pending(), 1, "SessionStart alone must not flush");
+    let recall = harness.codex_hook(
+        "UserPromptSubmit",
+        "codex-new",
+        serde_json::json!({"turn_id": "t1", "prompt": "What is the Boreal release code?"}),
+    );
+    assert!(recall.status.success());
+    let response = stdout_json(&recall);
+    assert_eq!(
+        response["hookSpecificOutput"]["hookEventName"],
+        "UserPromptSubmit"
+    );
+    assert!(response["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("CX-END-2718"));
+    assert_eq!(harness.pending(), 0);
+    let state: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            harness
+                .root()
+                .join("workspaces/integration/control/pipeline_state.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["indexTraces"][0]["reason"], "codex:first-recall");
+    assert!(harness
+        .root()
+        .join("workspaces/integration/control/codex/hooks.lock")
+        .is_file());
+}
+
+#[test]
+fn codex_null_transcript_and_unknown_events_are_minimal() {
+    let harness = Harness::new();
+    for event in [
+        "SessionEnd",
+        "Stop",
+        "PreCompact",
+        "SubagentStop",
+        "Interrupt",
+    ] {
+        let output = harness.codex_hook(event, "codex-empty", serde_json::json!({}));
+        assert!(output.status.success(), "{event}");
+        assert_eq!(
+            stdout_json(&output),
+            serde_json::json!({"continue": true}),
+            "{event}"
+        );
+    }
+    assert_eq!(harness.pending(), 0);
+}
+
+#[test]
+fn hook_rejects_two_host_policies() {
+    let harness = Harness::new();
+    let output = harness.run_with_stdin(&["hook", "--codex", "--workbuddy"], "{}");
+    assert!(!output.status.success());
 }
 
 fn stdout_json(output: &Output) -> serde_json::Value {

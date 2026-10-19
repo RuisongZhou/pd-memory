@@ -6,7 +6,7 @@
 
 mod commands;
 mod config_loader;
-mod workbuddy;
+mod host;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -54,8 +54,12 @@ enum Command {
     /// Handle one agent lifecycle hook invocation (stdin JSON -> stdout JSON).
     Hook {
         /// WorkBuddy session-end flush and first-recall backlog barrier.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "codex")]
         workbuddy: bool,
+        /// Codex first-recall backlog barrier; SessionEnd only captures and
+        /// Stop/SessionEnd output stays within Codex's strict schemas.
+        #[arg(long)]
+        codex: bool,
     },
     /// Capture one conversation turn into the raw L0 queue.
     Add {
@@ -175,10 +179,17 @@ fn run(options: &GlobalOptions, command: Command) -> pd_memory_core::Result<()> 
         Command::Serve { transport } => match transport {
             ServeTransport::Mcp => commands::serve_mcp(options),
         },
-        Command::Hook { workbuddy } => {
+        Command::Hook { workbuddy, codex } => {
+            let host = if workbuddy {
+                Some(host::Host::WorkBuddy)
+            } else if codex {
+                Some(host::Host::Codex)
+            } else {
+                None
+            };
             // The hook contract requires exit code 0 and a valid JSON line even
             // on failure; `commands::hook` handles that internally.
-            commands::hook(options, workbuddy);
+            commands::hook(options, host);
             Ok(())
         }
         Command::Add {

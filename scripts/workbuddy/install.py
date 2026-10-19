@@ -270,31 +270,36 @@ def verify_local(wrapper, mock):
         }, allow_mock=mock)
         if hook.get("continue") is not True:
             raise InstallError("Hook contract check failed")
-        requests = [
-            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-                "protocolVersion": "2025-11-25", "capabilities": {},
-                "clientInfo": {"name": "pd-memory-installer", "version": "1"},
-            }},
-            {"jsonrpc": "2.0", "method": "notifications/initialized"},
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-             "params": {"name": "memory_overview", "arguments": {}}},
-        ]
-        result = subprocess.run(
-            command + ["serve", "mcp"], input="".join(json.dumps(r) + "\n" for r in requests),
-            text=True, capture_output=True, timeout=30,
-        )
-        if result.returncode or (not mock and "MockProvider" in result.stderr):
-            raise InstallError("MCP startup failed")
-        responses = {r.get("id"): r for r in map(json.loads, result.stdout.splitlines())}
-        if "result" not in responses.get(1, {}):
-            raise InstallError("MCP initialize failed")
-        listed = responses.get(2, {}).get("result", {}).get("tools", [])
-        if {t["name"] for t in listed} != TOOLS:
-            raise InstallError("MCP must expose exactly the seven memory tools")
-        if "result" not in responses.get(3, {}) or responses[3]["result"].get("isError"):
-            raise InstallError("MCP memory_overview failed")
+        verify_mcp(command, mock)
     print("[check] MCP initialize, 7 tools, tool call and SessionStart hook passed")
+
+
+def verify_mcp(command, mock):
+    """MCP handshake, exactly the seven tools and one tool call."""
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-11-25", "capabilities": {},
+            "clientInfo": {"name": "pd-memory-installer", "version": "1"},
+        }},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+         "params": {"name": "memory_overview", "arguments": {}}},
+    ]
+    result = subprocess.run(
+        command + ["serve", "mcp"], input="".join(json.dumps(r) + "\n" for r in requests),
+        text=True, capture_output=True, timeout=30,
+    )
+    if result.returncode or (not mock and "MockProvider" in result.stderr):
+        raise InstallError("MCP startup failed")
+    responses = {r.get("id"): r for r in map(json.loads, result.stdout.splitlines())}
+    if "result" not in responses.get(1, {}):
+        raise InstallError("MCP initialize failed")
+    listed = responses.get(2, {}).get("result", {}).get("tools", [])
+    if {t["name"] for t in listed} != TOOLS:
+        raise InstallError("MCP must expose exactly the seven memory tools")
+    if "result" not in responses.get(3, {}) or responses[3]["result"].get("isError"):
+        raise InstallError("MCP memory_overview failed")
 
 
 def verify_model(wrapper):

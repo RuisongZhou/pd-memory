@@ -1,7 +1,7 @@
 //! Agent-platform lifecycle hook adapter for `pd-memory`.
 //!
-//! Claude-Code-compatible hook contract (also used by PilotDeck and
-//! WorkBuddy/CodeBuddy, all of which inherit it):
+//! Claude-Code-compatible hook contract (also used by PilotDeck,
+//! WorkBuddy/CodeBuddy and Codex, all of which inherit it):
 //!
 //! Input (stdin JSON, snake_case; unknown fields are preserved):
 //! `{ "hook_event_name": "UserPromptSubmit", "session_id": "...",
@@ -32,7 +32,8 @@ pub mod events;
 pub mod transcript;
 
 pub use events::{
-    derive_session_key, derive_workspace_id, dispatch_with, render_overview_context, HookEngine,
+    capture_only_with, derive_session_key, derive_workspace_id, dispatch_with,
+    render_overview_context, HookEngine,
 };
 pub use transcript::{parse_transcript, DEFAULT_TRANSCRIPT_MESSAGES};
 
@@ -40,16 +41,16 @@ pub use transcript::{parse_transcript, DEFAULT_TRANSCRIPT_MESSAGES};
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HookInput {
     /// Event name, e.g. `SessionStart`, `UserPromptSubmit`, `Stop`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub hook_event_name: String,
     /// Stable session identifier (host UUID).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub session_id: String,
     /// Absolute path to the host's JSONL transcript for this session.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub transcript_path: String,
     /// Working directory (absent on `SessionStart` in WorkBuddy).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_empty")]
     pub cwd: String,
     /// User prompt, present on `UserPromptSubmit`.
     #[serde(default)]
@@ -57,6 +58,13 @@ pub struct HookInput {
     /// All other host fields (`last_assistant_message`, `tool_name`, ...).
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Codex sends `null` for an absent `transcript_path`; treat `null` as "".
+fn null_as_empty<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 impl HookInput {
@@ -224,6 +232,11 @@ pub fn hook_output_for_raw(engine: &MemoryEngine, raw: &str) -> HookOutput {
     }
 }
 
+/// Capture one hook input against the engine without scheduled maintenance.
+pub fn capture_only(engine: &MemoryEngine, input: &HookInput) -> HookOutput {
+    capture_only_with(&events::EngineHooks::new(engine), input)
+}
+
 /// Dispatch one already-parsed hook input against the engine.
 pub fn dispatch(engine: &MemoryEngine, input: &HookInput) -> Result<HookOutput> {
     let backend = events::EngineHooks::new(engine);
@@ -303,6 +316,17 @@ mod tests {
         assert_eq!(input.session_id, "s1");
         assert_eq!(input.last_assistant_message(), Some("final reply"));
         assert!(input.extra.contains_key("unknown_future_field"));
+    }
+
+    #[test]
+    fn null_string_fields_are_empty() {
+        let input = parse_input(
+            r#"{"hook_event_name":"SessionEnd","session_id":"s1","transcript_path":null,"cwd":"/p","reason":"other"}"#,
+        );
+        assert_eq!(input.event(), "SessionEnd");
+        assert_eq!(input.session_id, "s1");
+        assert!(input.transcript_path.is_empty());
+        assert_eq!(input.cwd, "/p");
     }
 
     #[test]

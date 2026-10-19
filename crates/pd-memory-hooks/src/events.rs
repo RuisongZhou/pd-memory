@@ -181,6 +181,24 @@ fn user_prompt_submit(
 }
 
 fn capture_and_maintain(hooks: &dyn HookEngine, input: &HookInput, event: &str) -> HookOutput {
+    capture_transcript(hooks, input, event);
+    // Heartbeat / dream scheduling is best effort: a failure here must not fail
+    // the host's turn.
+    if let Err(error) = hooks.run_due_scheduled_maintenance(&format!("hook:{event}")) {
+        log::warn!("{event}: scheduled maintenance failed (ignored): {error}");
+    }
+    HookOutput::continue_only()
+}
+
+/// Capture the transcript (or inline final reply) without scheduled
+/// maintenance, for hosts that give an event too little time for model calls
+/// (Codex caps `SessionEnd` at 3 s).
+pub fn capture_only_with(hooks: &dyn HookEngine, input: &HookInput) -> HookOutput {
+    capture_transcript(hooks, input, input.event());
+    HookOutput::continue_only()
+}
+
+fn capture_transcript(hooks: &dyn HookEngine, input: &HookInput, event: &str) -> bool {
     let mut captured = false;
     if !input.transcript_path.trim().is_empty() {
         let mut messages =
@@ -213,12 +231,7 @@ fn capture_and_maintain(hooks: &dyn HookEngine, input: &HookInput, event: &str) 
     if !captured {
         log::debug!("{event}: no transcript messages available; nothing captured");
     }
-    // Heartbeat / dream scheduling is best effort: a failure here must not fail
-    // the host's turn.
-    if let Err(error) = hooks.run_due_scheduled_maintenance(&format!("hook:{event}")) {
-        log::warn!("{event}: scheduled maintenance failed (ignored): {error}");
-    }
-    HookOutput::continue_only()
+    captured
 }
 
 fn capture_messages(
@@ -687,6 +700,24 @@ mod tests {
         .unwrap();
         assert!(output.r#continue);
         assert!(output.hook_specific_output.is_none());
+    }
+
+    #[test]
+    fn capture_only_skips_maintenance() {
+        let hooks = FakeHooks::default();
+        let output = capture_only_with(
+            &hooks,
+            &input(
+                "SessionEnd",
+                serde_json::json!({"last_assistant_message": "final reply"}),
+            ),
+        );
+        assert!(output.r#continue);
+        assert!(output.hook_specific_output.is_none());
+        assert_eq!(
+            hooks.calls(),
+            vec!["capture:1:session-1:hook:SessionEnd".to_string()]
+        );
     }
 
     #[test]

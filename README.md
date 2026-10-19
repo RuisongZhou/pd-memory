@@ -58,6 +58,17 @@ bash scripts/workbuddy/install.sh --rollback
 重复安装不会重复添加 hooks；原有 MCP、hooks 和其他设置会保留。安装或验收失败时自动恢复
 原文件；回退遇到安装后的用户修改会停止，避免覆盖新设置。
 无交互安装、离线演示、目录布局及排查见 [安装与集成指南](docs/workbuddy.md)。
+
+## 接入 Codex
+
+需要 Python 3.11+。安装后在 Codex 中执行 `/hooks`（App：Settings → Hooks）信任四个 pd-memory hooks：
+
+```bash
+bash scripts/codex/install.sh --apply --verify-model --workspace /absolute/path/to/project
+```
+
+详见 [Codex 安装与集成](docs/codex.md)。
+
 以下章节保留手动配置方法。
 
 ## 1. 编译与安装
