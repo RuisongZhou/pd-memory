@@ -1,0 +1,5 @@
+# Local run state produced by simulate_workbuddy.py / run_e2e.sh
+.run/
+*.log
+*.bak.*
+backups/

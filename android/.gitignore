@@ -1,0 +1,8 @@
+# Android build outputs (the SDK scripts populate src/main/jniLibs, do not commit).
+.gradle/
+build/
+local.properties
+**/jniLibs/**/*.so
+.idea/
+*.iml
+.kotlin/

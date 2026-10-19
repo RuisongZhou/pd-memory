@@ -1,0 +1,19 @@
+[package]
+name = "pd-memory-mcp"
+description = "MCP (Model Context Protocol) stdio server for pd-memory"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+pd-memory-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+pd-memory-llm.workspace = true
+tempfile.workspace = true

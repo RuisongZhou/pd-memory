@@ -1,0 +1,60 @@
+{
+  "description": "pd-memory lifecycle hooks: capture agent turns and inject long-term memory context. This is the plugin-level form (a plugin's hooks/hooks.json, declared from .codebuddy-plugin/plugin.json with \"hooks\": \"./hooks/hooks.json\"). Placeholders __PD_MEMORY_*__ are filled by install_workbuddy.sh --with-hooks or by hand. Only schema fields observed in real WorkBuddy/CodeBuddy plugins are used (type/command/timeout); no extra keys.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

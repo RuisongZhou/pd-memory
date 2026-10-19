@@ -1,0 +1,47 @@
+{
+  "data_root": ".run/data",
+  "workspace_id": "workbuddy-demo",
+  "workspace_name": "WorkBuddy demo workspace",
+  "workspace_mode": "single",
+  "capture_strategy": "last_turn",
+  "include_assistant": true,
+  "max_message_chars": 6000,
+  "heartbeat_batch_size": 30,
+  "control_plane": "json",
+  "model": {
+    "api_type": "openai-chat",
+    "provider": "mock",
+    "model": "mock-deterministic",
+    "timeout_ms": 10000,
+    "max_retries": 0
+  },
+  "retrieval": {
+    "manifest_limit": 200,
+    "selection_limit": 5,
+    "recall_file_max_lines": 200,
+    "cache_ttl_ms": 0,
+    "timeout_ms": 30000
+  },
+  "redaction": {
+    "enabled": true,
+    "extra_patterns": []
+  },
+  "hooks": {
+    "capture_events": [
+      "Stop",
+      "SessionEnd",
+      "PostToolUse"
+    ],
+    "recall_events": [
+      "UserPromptSubmit",
+      "SessionStart"
+    ],
+    "pending_turn_threshold": 20,
+    "auto_index_interval_minutes": 30,
+    "auto_dream_interval_minutes": 60,
+    "max_context_chars": 8000
+  },
+  "mcp": {
+    "server_name": "pd-memory"
+  }
+}

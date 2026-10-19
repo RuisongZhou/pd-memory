@@ -1,0 +1,32 @@
+[package]
+name = "pd-memory-cli"
+description = "pd-memory command line: MCP server, hook handler, memory admin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pd-memory"
+path = "src/main.rs"
+
+[dependencies]
+pd-memory-core.workspace = true
+pd-memory-llm.workspace = true
+pd-memory-mcp.workspace = true
+pd-memory-hooks.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+env_logger.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+chrono.workspace = true
+
+[[example]]
+name = "parity-runtime"
+path = "../../examples/parity/runtime_driver.rs"

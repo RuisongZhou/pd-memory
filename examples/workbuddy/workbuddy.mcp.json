@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "pd-memory": {
+      "type": "stdio",
+      "command": "/absolute/path/to/sdk/pd-memory/target/debug/pd-memory",
+      "args": [
+        "--config",
+        "/absolute/path/to/sdk/pd-memory/examples/workbuddy/pd-memory.config.json",
+        "serve",
+        "mcp"
+      ],
+      "env": {
+        "PD_MEMORY_PROVIDER": "mock",
+        "PD_MEMORY_DATA_ROOT": "/absolute/path/to/sdk/pd-memory/examples/workbuddy/.run/data"
+      },
+      "timeout": 120000,
+      "disabled": false
+    }
+  }
+}

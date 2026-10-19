@@ -1,0 +1,1727 @@
+{
+  "_comment": "Deterministic scenarios for the TS-vs-Rust memory parity harness. Both runners read this file, so the two sides receive byte-identical inputs. Timestamps are frozen so all artifacts are reproducible; ISO timestamps are normalized by compare.py.",
+  "scenarios": {
+    "P1": {
+      "title": "basic turn -> project + feedback memory",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p1"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        }
+      ]
+    },
+    "P2": {
+      "title": "duplicate capture is idempotent: one L0 row, unchanged files",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p2"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "capture2",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush2",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        }
+      ]
+    },
+    "P3": {
+      "title": "user identity -> global UserIdentityNotes + manifest",
+      "mock": "user",
+      "workspaces": {
+        "A": {
+          "path": "ws/p3"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-user",
+          "timestamp": "2026-10-18T10:00:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-20",
+              "role": "user",
+              "content": "我是一名算法工程师，长期做推荐系统，目前住在杭州。"
+            },
+            {
+              "msgId": "message-21",
+              "role": "assistant",
+              "content": "明白了，我会记住这些个人信息。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "retrieve1",
+          "op": "retrieve",
+          "session": "sess-user",
+          "query": "用户是谁？"
+        },
+        {
+          "ws": "A",
+          "id": "userOnlySchedule",
+          "op": "runtime",
+          "now": "2030-01-01T00:00:00.000Z",
+          "actions": [
+            {
+              "op": "maintain",
+              "expect": {
+                "indexRan": false,
+                "dreamRan": false,
+                "autoDreamAnchorAt": null
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 7200000
+            },
+            {
+              "op": "maintain",
+              "expect": {
+                "indexRan": false,
+                "dreamRan": false,
+                "autoDreamAnchorAt": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "P4": {
+      "title": "recall gate answers none -> no memory injection",
+      "mock": "none",
+      "workspaces": {
+        "A": {
+          "path": "ws/p4"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "retrieve1",
+          "op": "retrieve",
+          "session": "sess-1",
+          "query": "明天杭州天气怎么样？"
+        }
+      ]
+    },
+    "P5": {
+      "title": "automatic and explicit recall: identical candidates and final system context",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p5"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "retrieve1",
+          "op": "retrieve",
+          "session": "sess-1",
+          "query": "Boreal 项目的文档语言规则是什么？"
+        },
+        {
+          "ws": "A",
+          "id": "retrieve2",
+          "op": "retrieve",
+          "session": "sess-1",
+          "query": "文档语言偏好是什么？"
+        },
+        {
+          "ws": "A",
+          "id": "search1",
+          "op": "search",
+          "query": "Boreal 项目的文档语言规则是什么？"
+        }
+      ]
+    },
+    "P6": {
+      "title": "dream merge + rollback restores pre-dream state",
+      "mock": "dream",
+      "workspaces": {
+        "A": {
+          "path": "ws/p6"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-dream",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "capture2",
+          "op": "capture",
+          "session": "sess-dream",
+          "timestamp": "2026-10-18T09:20:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-30",
+              "role": "user",
+              "content": "以后所有依赖安装只用 pnpm，不要用 npm。"
+            },
+            {
+              "msgId": "message-31",
+              "role": "assistant",
+              "content": "好的，依赖安装统一使用 pnpm。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush2",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "filesBeforeDream",
+          "op": "files"
+        },
+        {
+          "ws": "A",
+          "id": "dream1",
+          "op": "dream",
+          "trigger": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "filesAfterDream",
+          "op": "files"
+        },
+        {
+          "ws": "A",
+          "id": "list2",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "dreamNoop",
+          "op": "dream",
+          "expect_snapshot": true,
+          "expect_snapshot_from": "dream1"
+        },
+        {
+          "ws": "A",
+          "id": "rollback1",
+          "op": "rollback",
+          "expect_snapshot": true,
+          "expect_state_from": "filesBeforeDream"
+        },
+        {
+          "ws": "A",
+          "id": "filesAfterRollback",
+          "op": "files",
+          "expect_files_from": "filesBeforeDream"
+        },
+        {
+          "ws": "A",
+          "id": "list3",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "rollback2",
+          "op": "rollback",
+          "expect_snapshot": true,
+          "expect_state_from": "dreamNoop"
+        },
+        {
+          "ws": "A",
+          "id": "filesAfterRedo",
+          "op": "files",
+          "expect_files_from": "filesAfterDream"
+        },
+        {
+          "ws": "A",
+          "id": "rollback3",
+          "op": "rollback",
+          "expect_snapshot": true,
+          "expect_state_from": "filesBeforeDream"
+        },
+        {
+          "ws": "A",
+          "id": "filesAfterSecondUndo",
+          "op": "files",
+          "expect_files_from": "filesBeforeDream"
+        }
+      ]
+    },
+    "P7": {
+      "title": "two workspaces in one data root stay isolated",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p7-a"
+        },
+        "B": {
+          "path": "ws/p7-b"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "captureA",
+          "op": "capture",
+          "session": "sess-a",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flushA",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "B",
+          "id": "captureB",
+          "op": "capture",
+          "session": "sess-b",
+          "timestamp": "2026-10-18T09:13:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-40",
+              "role": "user",
+              "content": "这个项目叫 Astrolabe，是一个天文观测记录工具，目前处于原型阶段。"
+            },
+            {
+              "msgId": "message-41",
+              "role": "assistant",
+              "content": "好的，Astrolabe，天文观测记录，原型阶段。"
+            }
+          ]
+        },
+        {
+          "ws": "B",
+          "id": "flushB",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "listA",
+          "op": "list"
+        },
+        {
+          "ws": "B",
+          "id": "listB",
+          "op": "list"
+        },
+        {
+          "ws": "B",
+          "id": "retrieveB",
+          "op": "retrieve",
+          "session": "sess-b",
+          "query": "Astrolabe 项目状态是什么？"
+        }
+      ]
+    },
+    "P8": {
+      "title": "unanswered user turn indexes before a delayed assistant reply",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p8"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "expect_model_calls": [
+            "classify_turn",
+            "project_note_create",
+            "feedback_note_create"
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list",
+          "expect_count": 2
+        },
+        {
+          "ws": "A",
+          "id": "captureReply",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:13:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flushReply",
+          "op": "flush",
+          "expect_model_calls": []
+        },
+        {
+          "ws": "A",
+          "id": "listReply",
+          "op": "list",
+          "expect_count": 2
+        }
+      ]
+    },
+    "P9": {
+      "title": "explicit search honors gate route=project",
+      "mock": "project",
+      "workspaces": {
+        "A": {
+          "path": "ws/p9"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "search1",
+          "op": "search",
+          "query": "文档语言偏好是什么？",
+          "expect_route": "project",
+          "expect_selected_count": 2,
+          "expect_model_calls": [
+            "recall_gate",
+            "recall_select"
+          ]
+        }
+      ]
+    },
+    "P10": {
+      "title": "explicit search honors gate route=none",
+      "mock": "none",
+      "workspaces": {
+        "A": {
+          "path": "ws/p10"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "search1",
+          "op": "search",
+          "query": "文档语言偏好是什么？",
+          "expect_route": "none",
+          "expect_selected_count": 0,
+          "expect_model_calls": [
+            "recall_gate"
+          ]
+        }
+      ]
+    },
+    "P11": {
+      "title": "no-op Dream keeps success status and leaves no rollback snapshot",
+      "mock": "default",
+      "workspaces": {
+        "A": {
+          "path": "ws/p11"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "emptyDream",
+          "op": "dream",
+          "expect_snapshot": false
+        },
+        {
+          "ws": "A",
+          "id": "emptyRollback",
+          "op": "rollback",
+          "expect_snapshot": false
+        },
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-1",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "unchangedDream",
+          "op": "dream",
+          "expect_snapshot": false
+        },
+        {
+          "ws": "A",
+          "id": "unchangedRollback",
+          "op": "rollback",
+          "expect_snapshot": false
+        }
+      ]
+    },
+    "P12": {
+      "title": "global user profile uses the same user gate, selection and system context",
+      "mock": "user",
+      "workspaces": {
+        "A": {
+          "path": "ws/p12"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-user",
+          "timestamp": "2026-10-18T10:00:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-20",
+              "role": "user",
+              "content": "我是一名算法工程师，长期做推荐系统，目前住在杭州。"
+            },
+            {
+              "msgId": "message-21",
+              "role": "assistant",
+              "content": "明白了，我会记住这些个人信息。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush1",
+          "op": "flush",
+          "reason": "manual"
+        },
+        {
+          "ws": "A",
+          "id": "list1",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview1",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "dreamProfile",
+          "op": "dream",
+          "expect_snapshot": true
+        },
+        {
+          "ws": "A",
+          "id": "retrieve1",
+          "op": "retrieve",
+          "session": "sess-user",
+          "query": "用户是谁？",
+          "expect_route": "user",
+          "expect_selected_count": 1,
+          "expect_model_calls": [
+            "recall_gate",
+            "recall_select"
+          ]
+        }
+      ]
+    },
+    "P13": {
+      "title": "classification/create parse failures degrade; loose create parser and no replay",
+      "mock": "project",
+      "workspaces": {
+        "A": {
+          "path": "ws/p13"
+        }
+      },
+      "steps": [
+        {
+          "op": "capture",
+          "session": "fault-0",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Boreal 是本地知识库工具，目前处于设计阶段。FAULT_CLASSIFY"
+            }
+          ],
+          "timestamp": "2026-10-18T10:00:00.000Z",
+          "ws": "A",
+          "id": "capture0"
+        },
+        {
+          "op": "capture",
+          "session": "fault-1",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Boreal 是本地知识库工具，目前处于设计阶段。FAULT_CREATE"
+            }
+          ],
+          "timestamp": "2026-10-18T10:01:00.000Z",
+          "ws": "A",
+          "id": "capture1"
+        },
+        {
+          "op": "capture",
+          "session": "fault-2",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Boreal 是本地知识库工具，目前处于设计阶段。LOOSE_CREATE"
+            }
+          ],
+          "timestamp": "2026-10-18T10:02:00.000Z",
+          "ws": "A",
+          "id": "capture2"
+        },
+        {
+          "op": "capture",
+          "session": "fault-3",
+          "messages": [
+            {
+              "role": "user",
+              "content": "Boreal 是本地知识库工具，目前处于设计阶段。normal"
+            }
+          ],
+          "timestamp": "2026-10-18T10:03:00.000Z",
+          "ws": "A",
+          "id": "capture3"
+        },
+        {
+          "ws": "A",
+          "id": "flush",
+          "op": "flush"
+        },
+        {
+          "ws": "A",
+          "id": "list",
+          "op": "list"
+        },
+        {
+          "ws": "A",
+          "id": "overview",
+          "op": "overview"
+        },
+        {
+          "ws": "A",
+          "id": "repeat",
+          "op": "flush"
+        }
+      ]
+    },
+    "P14": {
+      "title": "scheduler anchors, injected clock, post-index Dream decision, manual/filtered flush and backlog",
+      "mock": "project",
+      "workspaces": {
+        "A": {
+          "path": "ws/p14"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "schedule",
+          "op": "runtime",
+          "now": "2030-01-01T00:00:00.000Z",
+          "actions": [
+            {
+              "op": "capture",
+              "session": "runtime",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，目前处于设计阶段。"
+                }
+              ]
+            },
+            {
+              "op": "maintain",
+              "reason": "idle",
+              "expect": {
+                "indexRan": false,
+                "dreamRan": false,
+                "autoIndexAnchorAt": "2030-01-01T00:00:00.000Z"
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 1800000
+            },
+            {
+              "op": "maintain",
+              "reason": "idle",
+              "expect": {
+                "indexRan": true,
+                "dreamRan": false,
+                "indexReason": "scheduled:idle",
+                "lastIndexedAt": "2030-01-01T00:00:00.000Z",
+                "autoIndexAnchorAt": null,
+                "autoDreamAnchorAt": "2030-01-01T00:30:00.000Z"
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 3540000
+            },
+            {
+              "op": "maintain",
+              "expect": {
+                "indexRan": false,
+                "dreamRan": false
+              }
+            },
+            {
+              "op": "settings",
+              "values": {
+                "auto_dream_interval_minutes": 0
+              }
+            },
+            {
+              "op": "capture",
+              "session": "a",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，先做导入。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "b",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，先做检索。"
+                }
+              ]
+            },
+            {
+              "op": "flush",
+              "batchSize": 1,
+              "expect": {
+                "pending": 1,
+                "autoIndexAnchorAt": "2030-01-01T01:29:00.000Z"
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 60000
+            },
+            {
+              "op": "flush",
+              "sessionKeys": [
+                "missing"
+              ],
+              "expect": {
+                "pending": 1,
+                "autoIndexAnchorAt": null
+              }
+            },
+            {
+              "op": "state",
+              "key": "autoIndexAnchorAt",
+              "value": 42
+            },
+            {
+              "op": "maintain",
+              "expect": {
+                "indexRan": false,
+                "autoIndexAnchorAt": "2030-01-01T01:29:00.000Z"
+              }
+            },
+            {
+              "op": "settings",
+              "values": {
+                "auto_index_interval_minutes": 0
+              }
+            },
+            {
+              "op": "flush",
+              "expect": {
+                "pending": 0,
+                "autoIndexAnchorAt": null
+              },
+              "sessionKeys": [
+                "",
+                " "
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-0",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 0 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-1",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 1 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-2",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 2 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-3",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 3 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-4",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 4 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-5",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 5 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-6",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 6 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-7",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 7 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-8",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 8 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-9",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 9 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-10",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 10 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-11",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 11 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-12",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 12 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-13",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 13 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-14",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 14 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-15",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 15 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-16",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 16 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-17",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 17 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-18",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 18 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "capture",
+              "session": "backlog-19",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，第 19 条持久事实。"
+                }
+              ]
+            },
+            {
+              "op": "maintain",
+              "reason": "scheduled:timer",
+              "expect": {
+                "indexRan": true,
+                "dreamRan": false,
+                "indexReason": "scheduled:timer:pending_threshold",
+                "pending": 0,
+                "autoIndexAnchorAt": null
+              }
+            },
+            {
+              "op": "settings",
+              "values": {
+                "auto_dream_interval_minutes": 60
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 3600000
+            },
+            {
+              "op": "maintain",
+              "expect": {
+                "indexRan": false,
+                "dreamRan": true,
+                "autoDreamAnchorAt": null
+              }
+            },
+            {
+              "op": "clear",
+              "expect": {
+                "pending": 0,
+                "autoIndexAnchorAt": null,
+                "autoDreamAnchorAt": null,
+                "lastIndexedAt": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "P15": {
+      "title": "persistent cache: body edits, flush/settings reset, TTL boundary, mode/recent/snapshot keys",
+      "mock": "project",
+      "workspaces": {
+        "A": {
+          "path": "ws/p15"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "cache",
+          "op": "runtime",
+          "now": "2030-01-01T00:00:00.000Z",
+          "actions": [
+            {
+              "op": "capture",
+              "session": "runtime",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，目前处于设计阶段。"
+                }
+              ]
+            },
+            {
+              "op": "flush"
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "edit_body",
+              "from": "Boreal 是本地知识库工具。",
+              "to": "Boreal 是新的本地工具。"
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "flush",
+              "expect": {
+                "written": 0
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "settings",
+              "values": {}
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 29999
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "advance",
+              "ms": 1
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "explicit": true,
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "explicit": true,
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "recent": [
+                {
+                  "role": "user",
+                  "content": "导入约束"
+                }
+              ],
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "recent": [
+                {
+                  "role": "user",
+                  "content": "导入约束"
+                },
+                {
+                  "role": "assistant",
+                  "content": "补充上下文"
+                }
+              ],
+              "expect": {
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "state",
+              "key": "lastDreamAt",
+              "value": "2029-12-31T00:00:00.000Z"
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "capture",
+              "session": "clear-pending",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 新增导入约束。"
+                }
+              ]
+            },
+            {
+              "op": "import",
+              "expect": {
+                "pending": 0,
+                "lastIndexedAt": null
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false
+              }
+            },
+            {
+              "op": "clear",
+              "expect": {
+                "pending": 0,
+                "lastIndexedAt": null,
+                "autoDreamAnchorAt": null
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal 当前处于什么阶段？",
+              "expect": {
+                "cacheHit": false,
+                "selectedCount": 0
+              }
+            },
+            {
+              "op": "state",
+              "key": "indexingSettings",
+              "value": {
+                "reasoning_mode": "invalid",
+                "auto_index_interval_minutes": "12minutes",
+                "auto_dream_interval_minutes": 20000
+              }
+            },
+            {
+              "op": "settings",
+              "values": {},
+              "expect": {
+                "indexMinutes": 12,
+                "dreamMinutes": 10080
+              }
+            },
+            {
+              "op": "settings",
+              "values": {
+                "auto_index_interval_minutes": 20000
+              },
+              "expect": {
+                "indexMinutes": 10080
+              }
+            },
+            {
+              "op": "clear",
+              "scope": "all_memory",
+              "expect": {
+                "pending": 0,
+                "lastIndexedAt": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "P16": {
+      "title": "recall parse failures and response_format fallback use the upstream request flow",
+      "mock": "project",
+      "workspaces": {
+        "A": {
+          "path": "ws/p16"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "faults",
+          "op": "runtime",
+          "now": "2030-01-01T00:00:00.000Z",
+          "expect_model_calls": [
+            "classify_turn",
+            "project_note_create",
+            "recall_gate",
+            "recall_gate",
+            "recall_select",
+            "recall_gate",
+            "recall_gate",
+            "recall_select"
+          ],
+          "actions": [
+            {
+              "op": "capture",
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Boreal 是本地知识库工具，目前处于设计阶段。"
+                }
+              ]
+            },
+            {
+              "op": "flush"
+            },
+            {
+              "op": "recall",
+              "query": "Boreal FAULT_GATE",
+              "expect": {
+                "route": "none",
+                "cacheHit": false,
+                "selectedCount": 0
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal FAULT_GATE",
+              "expect": {
+                "route": "none",
+                "cacheHit": true
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal FAULT_SELECT",
+              "expect": {
+                "route": "project",
+                "cacheHit": false,
+                "selectedCount": 1
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal NO_JSON_MODE",
+              "expect": {
+                "route": "project",
+                "cacheHit": false,
+                "selectedCount": 1
+              }
+            },
+            {
+              "op": "recall",
+              "query": "Boreal NO_JSON_MODE",
+              "expect": {
+                "cacheHit": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "P17": {
+      "title": "Dream accepts a reason mentioning group membership without project membership",
+      "mock": "dream-reason",
+      "workspaces": {
+        "A": {
+          "path": "ws/p17"
+        }
+      },
+      "steps": [
+        {
+          "ws": "A",
+          "id": "capture1",
+          "op": "capture",
+          "session": "sess-dream",
+          "timestamp": "2026-10-18T09:12:33.412Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-12",
+              "role": "user",
+              "content": "这个项目叫 Boreal，是本地知识库整理工具，目前还在设计阶段。以后所有文档都用中文写。"
+            },
+            {
+              "msgId": "message-13",
+              "role": "assistant",
+              "content": "好的，我记下了：Boreal，本地知识库，设计阶段，文档用中文。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "capture2",
+          "op": "capture",
+          "session": "sess-dream",
+          "timestamp": "2026-10-18T09:20:00.000Z",
+          "source": "parity",
+          "messages": [
+            {
+              "msgId": "message-30",
+              "role": "user",
+              "content": "以后所有依赖安装只用 pnpm，不要用 npm。"
+            },
+            {
+              "msgId": "message-31",
+              "role": "assistant",
+              "content": "好的，依赖安装统一使用 pnpm。"
+            }
+          ]
+        },
+        {
+          "ws": "A",
+          "id": "flush",
+          "op": "flush"
+        },
+        {
+          "ws": "A",
+          "id": "dream",
+          "op": "dream",
+          "expect_snapshot": true
+        },
+        {
+          "ws": "A",
+          "id": "files",
+          "op": "files"
+        }
+      ]
+    }
+  }
+}

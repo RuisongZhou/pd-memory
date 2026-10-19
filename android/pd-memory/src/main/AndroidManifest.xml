@@ -1,0 +1,12 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Android library module for the pd-memory SDK.
+
+      The native engine (libpd_memory_ffi.so) is packaged from
+      src/main/jniLibs/<abi>/ and loaded by PdMemory's companion object.
+
+      Consumers that configure a remote model provider must add
+      <uses-permission android:name="android.permission.INTERNET" /> to their
+      own app manifest; the library intentionally does not request it.
+    -->
+</manifest>

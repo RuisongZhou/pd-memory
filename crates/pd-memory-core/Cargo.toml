@@ -1,0 +1,22 @@
+[package]
+name = "pd-memory-core"
+description = "File-native, auditable long-term memory engine (Rust port of PilotDeck Memory)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha1.workspace = true
+sha2.workspace = true
+hex.workspace = true
+chrono.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+pd-memory-testkit.workspace = true

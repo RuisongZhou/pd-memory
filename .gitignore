@@ -1,0 +1,21 @@
+/target/
+**/target/
+Cargo.lock.bak
+/examples/workbuddy/.run/
+/examples/workbuddy/*.log
+/examples/workbuddy/**/*.bak.*
+/android/.gradle/
+/android/**/build/
+/android/local.properties
+.DS_Store
+
+# Local deployments and credentials
+.env
+*.env
+.env.*
+!.env.example
+*.local.json
+/pd-memory.config.json
+/data/
+__pycache__/
+*.pyc

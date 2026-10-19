@@ -1,0 +1,9 @@
+{
+  "repository": "https://github.com/OpenBMB/PilotDeck",
+  "commit": "52660d51a9292032ae9ca485eafb30175858741d",
+  "memoryCore": "src/context/memory/edgeclaw-memory-core",
+  "sourceSha256": "4d9e375bdf882d4f820f182fff089bf3c41191cb753026e6fd43846034417a19",
+  "compiledLibSha256": "2b97e80817b1a653a695f4e4f2169e9d2acb14f73559a7aa09185bcd08aff594",
+  "verifiedAt": "2026-10-19",
+  "scope": "single-project memory behavior"
+}

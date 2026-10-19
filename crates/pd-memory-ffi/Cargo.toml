@@ -1,0 +1,38 @@
+[package]
+name = "pd-memory-ffi"
+description = "C ABI + JNI bindings so pd-memory runs inside Android apps"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# cdylib: libpd_memory_ffi.so for Android / desktop C hosts;
+# staticlib: embed the SDK into a native host;
+# rlib: host-side unit tests.
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = []
+# Real HTTP(S) model providers (OpenAI-compatible / Anthropic) from pd-memory-llm.
+#
+# Kept OFF by default on purpose: `pd-memory-llm` -> `ureq` -> `rustls` -> `ring`
+# compiles C/assembly in its build script, which requires an Android NDK (or a
+# desktop C toolchain). With the feature off, the crate still compiles for
+# `*-linux-android` targets with a plain `cargo check` on machines without the
+# NDK; engines created without a configured model use a fallback provider that
+# only supports model-free operations (capture/list/get/overview/export/...).
+# Device builds enable it: see android/README.md and scripts/android-build.sh.
+http-model = ["dep:pd-memory-llm"]
+
+[dependencies]
+pd-memory-core.workspace = true
+pd-memory-llm = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+jni.workspace = true
+
+[dev-dependencies]
+pd-memory-testkit.workspace = true

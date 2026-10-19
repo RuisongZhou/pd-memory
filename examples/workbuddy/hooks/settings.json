@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=__PD_MEMORY_DATA_ROOT__ __PD_MEMORY_BIN__ --config __PD_MEMORY_CONFIG__ hook",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
