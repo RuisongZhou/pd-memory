@@ -34,9 +34,10 @@ pd-memory 的记忆库。安装前应选定要绑定的目录；SDK 当前不包
 1. 读取并验证已有 JSON，解析绝对路径，读取现有或新提供的模型配置。
 2. 从当前源码构建 release；有现成二进制时可用 `--binary /absolute/path/to/pd-memory`。
 3. 备份将修改的文件，安装二进制、wrapper 和私有模型配置。
-4. 合并 GUI/CLI MCP 和 `SessionStart`、`UserPromptSubmit`、`Stop` hooks，保留其他条目。
+4. 合并 GUI/CLI MCP 和 `SessionStart`、`UserPromptSubmit`、`Stop`、`SessionEnd` hooks，保留其他条目。
 5. 在临时数据目录验证 MCP 握手、七个工具、工具调用与 SessionStart hook。
-6. 指定 `--verify-model` 时，额外验证 Stop 捕获 → 提取 → 搜索 → UserPromptSubmit 注入。
+6. 指定 `--verify-model` 时，在两个独立临时目录验证 Stop 捕获 → 新会话首次召回自动 flush，
+   以及 SessionEnd 捕获后主动 flush；两条路径均验证搜索和上下文注入。
 
 模型验收只发送合成的 Boreal 项目事实，会产生少量 API 调用；测试目录结束后删除。
 不传 `--verify-model` 只检查本地链路，输出会明确提示模型连通性未验证。
@@ -92,7 +93,7 @@ wrapper 固定读取同一份配置和密钥，并清除可能导致分库或误
 |---|---|
 | `--apply` | 正式安装；不传时只预览 |
 | `--verify-model` | 用临时数据做真实模型验收；与 `--mock` 互斥 |
-| `--mcp-target gui / cli / both` | 默认同时接入 GUI 和 CLI；三个 hooks 默认安装 |
+| `--mcp-target gui / cli / both` | 默认同时接入 GUI 和 CLI；四个 hooks 默认安装 |
 | `--home <dir>` | 安装根目录，默认当前用户 home；用于隔离测试 |
 | `--workbuddy-home <dir>` | 自定义 WorkBuddy 用户目录，默认 `<home>/.workbuddy` |
 | `--workspace <dir>` | 绑定的已有工作目录；重复安装默认沿用原值 |
@@ -141,7 +142,7 @@ bash scripts/workbuddy/install.sh --rollback /absolute/path/to/installations/<id
 
 ```text
 WorkBuddy 工具调用 → wrapper → pd-memory serve mcp → MemoryEngine
-WorkBuddy 生命周期 → wrapper → pd-memory hook → 同一配置、同一工作目录、同一数据目录
+WorkBuddy 生命周期 → wrapper → pd-memory hook --workbuddy → 同一配置、同一工作目录、同一数据目录
 ```
 
 MCP 提供：`memory_add`、`memory_flush`、`memory_search`、`memory_list`、
@@ -164,9 +165,24 @@ GUI/CLI 的 MCP 条目均指向 wrapper，配置不包含密钥：
 
 | 事件 | 行为 | 安装器设置的超时 |
 |---|---|---|
-| SessionStart | 注入记忆概览，不调用模型 | 20 秒 |
-| UserPromptSubmit | 按问题召回，输出 additionalContext | 120 秒 |
-| Stop | 从 transcript 捕获对话，再检查到期维护 | 180 秒 |
+| SessionStart | 注入记忆概览，不主动 flush | 150 秒 |
+| UserPromptSubmit | 首次先处理积压，再按问题召回并输出 additionalContext | 300 秒 |
+| Stop | 从 transcript 捕获对话，再检查到期维护 | 300 秒 |
+| SessionEnd | 补捕获最终 transcript，并主动 flush 积压 | 300 秒 |
+
+上述策略仅在 `hook --workbuddy` 模式生效，安装器会自动配置该参数。普通 `hook`、MCP、
+Android 和记忆引擎保持原行为。升级旧安装时重新执行安装脚本，会替换旧条目，不重复注册。
+
+同一工作目录的 WorkBuddy hooks 用进程间文件锁串行执行，锁在引擎打开前取得，
+避免旧快照覆盖新状态。锁最多等待 120 秒，因此 SessionStart 的超时也留出了等待时间。
+新会话以 `session_id`（缺失时用 transcript 文件名）识别，首次有效 UserPromptSubmit 会先检查
+待处理条数，并逐批调用现有 flush，直到积压清空，再进入同一次 hook 的召回流程。
+不依赖 SessionStart 与 UserPromptSubmit 的先后顺序。
+
+成功检查后，同一 session 的后续提问不会重复强制 flush；SessionEnd 会清除该检查标记，
+恢复这个 session 时可以重新检查。标记与锁保存在对应工作目录数据下的 `control/workbuddy/`，
+不包含对话正文。检查、flush 或状态保存失败时写 stderr 并放行聊天；未完成的检查会在后续提问重试。
+此策略只处理已经捕获的内容，不会提前读取仍在运行的其他会话尚未生成的回复。
 
 hook 输入使用 snake_case，输出遵循宿主协议：
 
@@ -183,7 +199,7 @@ GUI 将系统提醒和 `<user_query>` 放在同一文本块时，适配器仅提
 异常写 stderr，hook 继续宿主任务。因此不能只用 hook 的退出码判断模型是否可用；
 `--verify-model` 会断言生成文件和召回内容。
 
-默认索引间隔 30 分钟，或待处理 L0 达到 20 条触发；Dream 默认 60 分钟且要求项目记忆发生变化。
+引擎默认索引间隔仍为 30 分钟，或待处理 L0 达到 20 条触发；Dream 默认 60 分钟且要求项目记忆发生变化。
 检查发生在宿主事件到达时，没有常驻计时线程。立即生成记忆可调用 `memory_flush` 或执行：
 
 ```bash
@@ -208,13 +224,16 @@ bash examples/workbuddy/run_e2e.sh --no-real
 ```
 
 GUI 验收：在绑定工作目录新建任务，给出一条项目事实；一轮结束后检查 `memory_overview` 的 pending，
-调用 `memory_flush`，再从新会话召回该事实。MCP 工具可见、CLI 注入成功与 GUI 会话自动注入是不同的验证项。
+新建会话查询该事实；首次召回应先自动处理积压，无需手动调用 `memory_flush`。
+SessionEnd 的主动 flush 以宿主实际发出事件为前提。本机 WorkBuddy 5.8.3 GUI 实测切换任务、
+`/clear` 和退出都未观察到该事件，均由新会话首次召回兜底；不能把 GUI 显示「新对话开始」当成事件已送达。
+MCP 工具可见、CLI 注入成功与 GUI 会话自动注入是不同的验证项。
 
 | 现象 | 检查 |
 |---|---|
 | GUI 看不到 MCP | 是否写入 `mcp.json`，是否重启，是否在自定义连接器点击「信任」 |
-| 能调用工具但不自动捕获 | 用户级 settings 是否保留三个 hooks；transcript 是否存在 |
-| 只有 pending | 还未达到调度条件，主动调用 memory_flush |
+| 能调用工具但不自动捕获 | 用户级 settings 是否保留四个 hooks；transcript 是否存在 |
+| 只有 pending | 同一会话尚未达到调度条件；新会话首次召回或 SessionEnd 会补处理，也可手动 memory_flush |
 | 模型失败但聊天继续 | hooks 为尽力执行；运行 --verify-model，核对服务地址、模型名和密钥 |
 | 不同项目混在一起 | 此安装固定单工作目录，不跟随 WorkBuddy 的空间自动切换 |
 | 回退被拒绝 | 安装后目标文件有新修改；对照备份合并，避免覆盖新设置 |

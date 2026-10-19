@@ -6,6 +6,7 @@
 
 mod commands;
 mod config_loader;
+mod workbuddy;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -51,7 +52,11 @@ enum Command {
         transport: ServeTransport,
     },
     /// Handle one agent lifecycle hook invocation (stdin JSON -> stdout JSON).
-    Hook,
+    Hook {
+        /// WorkBuddy session-end flush and first-recall backlog barrier.
+        #[arg(long)]
+        workbuddy: bool,
+    },
     /// Capture one conversation turn into the raw L0 queue.
     Add {
         /// Session id used to group turns (default `cli`).
@@ -170,10 +175,10 @@ fn run(options: &GlobalOptions, command: Command) -> pd_memory_core::Result<()> 
         Command::Serve { transport } => match transport {
             ServeTransport::Mcp => commands::serve_mcp(options),
         },
-        Command::Hook => {
+        Command::Hook { workbuddy } => {
             // The hook contract requires exit code 0 and a valid JSON line even
             // on failure; `commands::hook` handles that internally.
-            commands::hook(options);
+            commands::hook(options, workbuddy);
             Ok(())
         }
         Command::Add {

@@ -81,13 +81,13 @@ pub fn serve_mcp(options: &GlobalOptions) -> Result<()> {
 ///
 /// This command is intentionally infallible from the host's point of view: any
 /// internal failure is logged to stderr and downgraded to `{"continue":true}`.
-pub fn hook(options: &GlobalOptions) {
-    let output = hook_output_from_stdin(options);
+pub fn hook(options: &GlobalOptions, workbuddy: bool) {
+    let output = hook_output_from_stdin(options, workbuddy);
     print!("{}", pd_memory_hooks::render_output(&output));
     let _ = std::io::stdout().flush();
 }
 
-fn hook_output_from_stdin(options: &GlobalOptions) -> HookOutput {
+fn hook_output_from_stdin(options: &GlobalOptions, workbuddy: bool) -> HookOutput {
     let mut raw = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut raw) {
         log::error!("could not read hook stdin ({error}); continuing");
@@ -102,6 +102,19 @@ fn hook_output_from_stdin(options: &GlobalOptions) -> HookOutput {
         }
     };
     config_loader::apply_hook_workspace(&mut config, &input);
+    // Acquire the host lock before opening the engine, so each subprocess sees
+    // state committed by the preceding capture / flush / recall.
+    let session = if workbuddy {
+        match crate::workbuddy::Session::lock(&config, &input) {
+            Ok(session) => Some(session),
+            Err(error) => {
+                log::warn!("WorkBuddy hook lock failed ({error}); continuing");
+                return HookOutput::continue_only();
+            }
+        }
+    } else {
+        None
+    };
     let event = input.event().to_string();
     let engine = match config_loader::build_engine_lenient(&config, &format!("hook:{event}")) {
         Ok(engine) => engine,
@@ -110,7 +123,11 @@ fn hook_output_from_stdin(options: &GlobalOptions) -> HookOutput {
             return HookOutput::continue_only();
         }
     };
-    match pd_memory_hooks::dispatch(&engine, &input) {
+    let result = match session {
+        Some(session) => session.dispatch(&engine, &input),
+        None => pd_memory_hooks::dispatch(&engine, &input),
+    };
+    match result {
         Ok(output) => output,
         Err(error) => {
             log::error!("hook dispatch failed ({error}); continuing");

@@ -30,9 +30,14 @@ bash scripts/workbuddy/install.sh --apply --verify-model
 
 首次运行会询问模型名（默认 `qwen-plus`）、服务前缀地址和 API key；密钥输入不回显。
 服务地址使用你的供应商提供的 OpenAI 兼容地址，程序会追加 `/chat/completions`。
-脚本从本地源码构建 release，安装命令和配置，合并 GUI/CLI 的 MCP 与三个用户级 hooks，
+脚本从本地源码构建 release，安装命令和配置，合并 GUI/CLI 的 MCP 与四个用户级 hooks，
 然后在临时目录验证真实模型的捕获、提取、搜索和上下文注入。验证会产生少量模型调用，
 测试事实不会进入正式记忆。已有安装再次运行会复用模型配置和密钥。
+
+收到 WorkBuddy 的 SessionEnd 事件时会主动处理已捕获的积压；新会话首次召回前也会检查并补处理，
+因此不依赖 Agent 主动调用 `memory_flush`。本机 GUI 切换、`/clear` 和退出未观察到 SessionEnd，
+由新会话首次召回兜底，详见[验收记录](examples/workbuddy/EVIDENCE.md)。
+处理需要调用记忆模型，存在积压时首问可能需要等待；失败不阻断聊天，后续提问会重试检查。
 
 默认绑定 `~/.workbuddy/workspace`；绑定其他已有目录时加 `--workspace /absolute/path/to/project`。
 运行配置中的密钥保存在 `~/.config/pd-memory/model.env`（权限 `600`），不进入 MCP JSON、

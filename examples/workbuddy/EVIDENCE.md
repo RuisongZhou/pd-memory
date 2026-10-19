@@ -1,4 +1,45 @@
-> **2026-10-19 更新：WorkBuddy 5.8.3**
+## 2026-10-19：WorkBuddy 会话 flush 策略验收
+
+本次仅调整 `pd-memory hook --workbuddy` 接入策略及安装器。记忆引擎、普通 hook、MCP 和
+Android 语义不变。安装器部署四个生命周期 hook，使用工作目录级进程锁；SessionEnd 补捕获后
+调用现有 flush，新 session 首次有效提问在召回前逐批处理积压。失败放行聊天，未完成检查下次重试。
+
+### 自动化与真实模型
+
+- Rust 工作区 **317 项通过**，包含 6 项新增 CLI 集成测试和 2 项策略单测：普通 hook 行为不变、
+  首次召回、SessionStart 乱序、每会话只检查一次、结束后恢复、缺少 Stop 的最终捕获、
+  多批积压、失败放行与重试、并发不重复索引、空积压及失败/无进展退出。
+- 安装器 **26 项**、比较器 **12 项**通过；PilotDeck 差分 **17 PASS / 0 DIFF / 0 SKIP / 0 ERROR**；
+  三个 Android 默认 target 编译通过。fmt、workspace all-targets check 通过；本机未安装 Clippy。
+- 通用 hook 的既有模拟器及真实 WorkBuddy CLI 基线仍为 **56 PASS / 0 WARN / 0 FAIL / 0 SKIP**；
+  该基线不替代上述新策略测试。
+- 本机升级部署成功，既有凭据、数据和其他连接器保留。新版 `--verify-model` 使用两个独立临时目录，
+  由真实 Qwen `qwen-plus` 分别验证 Stop → 首次召回自动 flush，以及 SessionEnd → 主动 flush；
+  后者在发起召回前断言已有记忆且积压为零。两条路径的搜索、additionalContext 均包含合成事实
+  `Nacre-731`。这里向已安装 hook 发送真实契约载荷，**不是 GUI SessionEnd 事件验收**。
+
+### 本机 GUI：已验证与限制
+
+2026-10-19 15:58–16:07（UTC+8），WorkBuddy **5.8.3**，Agent 使用 Space-Bunny，记忆模型
+使用 Qwen `qwen-plus`，固定绑定 `~/.workbuddy/workspace`。本次 GUI 流程没有调用 CLI flush 或
+MCP memory_flush，也没有改动引擎调度阈值。四个测试会话的 transcript 工具调用数均为 **0**。
+
+| 场景 | 实际结果 |
+|---|---|
+| 首次提问处理原有积压 | `workbuddy:first-recall` 处理 12 条/12 会话，写入 6 份文件，无错误，索引耗时约 55 秒 |
+| A 自动捕获 | 输入 Azure Kite 发布代号 `Sora-6824` 和交付前离线差分测试要求，GUI 仅回复 Received；L0 来源 `hook:Stop`，索引前为 pending |
+| B 新会话首次召回 | B 问题不含代号；首次 hook 自动处理 A 的 1 条积压，约 20 秒写入 2 份文件，无错误；随后 `cache_hit=false`、`route=project`，选中 Azure Kite Project 与测试要求 Feedback，GUI 回答包含正确代号和检查要求 |
+| GUI `/clear`、切换任务、退出 | 本次未观察到 SessionEnd hook 执行，C 的 Stop 记录仍为 pending；GUI 的「新对话开始」不证明底层发送了 SessionEnd |
+| 重启后的首次检索 | D 首次 hook 自动处理 C 的记录，索引 trace 为 `workbuddy:first-recall`；但模型跳过了该合成事实，`processed_turns=1, skipped_turns=1, written_files=0`，GUI 回答 Unknown。因此积压处理通过，该事实的召回未通过 |
+
+B 的回复还附加了把测试操作限制混入项目规则的内容；本次仅据正确事实、索引与召回 trace 验证接入链路，
+不把它作为记忆质量保证。C/D 的合成事实为 Silver Ibis / `Rill-8457`，没有因该结果改动提取或检索引擎。
+GUI 未发出 SessionEnd 时，由新 session 首次召回兜底；主动结束路径由离线回归和隔离真实模型验证覆盖，
+**GUI SessionEnd 验收不记为通过**。原始日志、账户信息、真实记忆和 transcript 只保留在本机，不提交。
+
+以下为本次策略调整前的历史验收记录，其中的手动 flush 与三个 hooks 描述不代表当前安装行为。
+
+> **2026-10-19 较早记录：WorkBuddy 5.8.3**
 >
 > - 模拟器 + 真实 CodeBuddy CLI：56 PASS，0 WARN，0 FAIL，0 SKIP。
 > - 已先移除本机 pd-memory 的 GUI/CLI MCP 注册和三个 hooks，保留模型凭据、已有记忆及其他配置，

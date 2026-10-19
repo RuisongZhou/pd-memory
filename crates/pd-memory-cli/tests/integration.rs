@@ -76,6 +76,230 @@ impl Harness {
             .expect("write stdin");
         child.wait_with_output().expect("wait pd-memory")
     }
+
+    fn workbuddy_hook(&self, event: &str, session: &str, extra: serde_json::Value) -> Output {
+        let mut input = serde_json::json!({"hook_event_name": event, "session_id": session});
+        input
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        self.run_with_stdin(
+            &["--workspace", "integration", "hook", "--workbuddy"],
+            &input.to_string(),
+        )
+    }
+
+    fn capture(&self, session: &str, fact: &str) {
+        let output = self.run_with_stdin(
+            &["--workspace", "integration", "add", "--session", session],
+            &serde_json::json!([
+                {"role": "user", "content": fact},
+                {"role": "assistant", "content": "Noted"}
+            ])
+            .to_string(),
+        );
+        assert!(output.status.success(), "{}", stderr_text(&output));
+    }
+
+    fn pending(&self) -> u64 {
+        stdout_json(&self.run(&["--workspace", "integration", "overview"]))
+            ["pending_dialogue_turns"]
+            .as_u64()
+            .unwrap()
+    }
+}
+
+#[test]
+fn workbuddy_first_recall_flushes_but_generic_hook_does_not() {
+    let harness = Harness::new();
+    harness.capture(
+        "old",
+        "Always remember: the Boreal project code is WB-5813.",
+    );
+    let prompt = serde_json::json!({"prompt": "What is the Boreal project code?"});
+    let generic = harness.run_with_stdin(
+        &["--workspace", "integration", "hook"],
+        &serde_json::json!({"hook_event_name":"UserPromptSubmit", "session_id":"new", "prompt":prompt["prompt"]}).to_string(),
+    );
+    assert!(generic.status.success());
+    assert_eq!(harness.pending(), 1);
+    let output = harness.workbuddy_hook("UserPromptSubmit", "new", prompt);
+    assert!(output.status.success());
+    let response = stdout_json(&output);
+    assert!(response["hookSpecificOutput"]["additionalContext"]
+        .as_str()
+        .unwrap()
+        .contains("WB-5813"));
+    assert_eq!(harness.pending(), 0);
+}
+
+#[test]
+fn workbuddy_checks_once_per_session_regardless_of_start_order() {
+    let harness = Harness::new();
+    let prompt = serde_json::json!({"prompt":"What are the project rules?"});
+    harness.workbuddy_hook("UserPromptSubmit", "a", prompt.clone()); // Empty queue: no flush.
+    harness.capture("old", "Always run offline tests before Boreal releases.");
+    harness.workbuddy_hook("SessionStart", "a", serde_json::json!({"source":"startup"}));
+    harness.workbuddy_hook("UserPromptSubmit", "a", prompt.clone());
+    assert_eq!(
+        harness.pending(),
+        1,
+        "late SessionStart must not reset the barrier"
+    );
+    harness.workbuddy_hook("SessionStart", "b", serde_json::json!({"source":"resume"}));
+    assert_eq!(harness.pending(), 1, "SessionStart alone must not flush");
+    harness.workbuddy_hook("UserPromptSubmit", "b", prompt.clone());
+    assert_eq!(harness.pending(), 0);
+    harness.workbuddy_hook("SessionEnd", "b", serde_json::json!({"reason":"clear"}));
+    harness.capture("other", "Always use Chinese for Boreal delivery notes.");
+    harness.workbuddy_hook("UserPromptSubmit", "b", prompt);
+    assert_eq!(harness.pending(), 0);
+}
+
+#[test]
+fn workbuddy_session_end_captures_and_flushes_without_stop() {
+    let harness = Harness::new();
+    let transcript = harness.root().join("end.jsonl");
+    std::fs::write(&transcript, concat!(
+        r#"{"type":"message","role":"user","content":[{"type":"input_text","text":"<system-reminder>host</system-reminder><user_query>Always remember Boreal release code WB-END-7921.</user_query>"}]}"#,
+        "\n",
+        r#"{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Noted"}]}"#,
+        "\n"
+    )).unwrap();
+    let output = harness.workbuddy_hook(
+        "SessionEnd",
+        "old",
+        serde_json::json!({"transcript_path":transcript,"reason":"clear"}),
+    );
+    assert!(output.status.success());
+    assert_eq!(stdout_json(&output), serde_json::json!({"continue":true}));
+    assert_eq!(harness.pending(), 0);
+    let result = harness.run(&[
+        "--workspace",
+        "integration",
+        "search",
+        "What is the Boreal release code?",
+    ]);
+    assert!(String::from_utf8_lossy(&result.stdout).contains("WB-END-7921"));
+    let queue = std::fs::read_to_string(
+        harness
+            .root()
+            .join("workspaces/integration/control/l0_sessions.jsonl"),
+    )
+    .unwrap();
+    assert!(queue.contains("hook:SessionEnd"));
+    let state: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            harness
+                .root()
+                .join("workspaces/integration/control/pipeline_state.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["indexTraces"][0]["reason"], "workbuddy:session-end");
+}
+
+#[test]
+fn workbuddy_first_recall_drains_more_than_one_index_batch() {
+    let harness = Harness::new();
+    let config = harness.root().join("config.json");
+    std::fs::write(
+        &config,
+        serde_json::json!({"data_root":harness.root(), "heartbeat_batch_size":1}).to_string(),
+    )
+    .unwrap();
+    for id in ["one", "two", "three"] {
+        harness.capture(
+            id,
+            &format!("Always remember the Boreal {id} project rule."),
+        );
+    }
+    let output = harness.run_with_stdin(
+        &["--config", config.to_str().unwrap(), "--workspace", "integration", "hook", "--workbuddy"],
+        &serde_json::json!({"hook_event_name":"UserPromptSubmit","session_id":"new", "prompt":"What are the Boreal rules?"}).to_string(),
+    );
+    assert!(output.status.success());
+    assert_eq!(harness.pending(), 0);
+    let state: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            harness
+                .root()
+                .join("workspaces/integration/control/pipeline_state.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["indexTraces"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn workbuddy_failed_hook_keeps_backlog_and_retries_next_prompt() {
+    let harness = Harness::new();
+    let fact = "Always remember the Boreal release code WB-RETRY-5891.";
+    harness.capture("old", fact);
+    let path = harness
+        .root()
+        .join("workspaces/integration/control/workbuddy/hooks.lock");
+    std::fs::create_dir_all(&path).unwrap(); // Deterministic lock failure, even as root.
+    let prompt = serde_json::json!({"prompt":"What is the Boreal release code?"});
+    let failed = harness.workbuddy_hook("UserPromptSubmit", "new", prompt.clone());
+    assert!(failed.status.success());
+    assert_eq!(stdout_json(&failed)["continue"], true);
+    assert!(harness.pending() > 0);
+    std::fs::remove_dir(&path).unwrap();
+    let retried = harness.workbuddy_hook("UserPromptSubmit", "new", prompt);
+    assert!(retried.status.success());
+    assert_eq!(harness.pending(), 0);
+    assert!(
+        stdout_json(&retried)["hookSpecificOutput"]["additionalContext"]
+            .as_str()
+            .unwrap()
+            .contains("WB-RETRY-5891")
+    );
+}
+
+#[test]
+fn workbuddy_concurrent_first_prompts_do_not_duplicate_flush() {
+    let harness = Harness::new();
+    harness.capture(
+        "old",
+        "Always remember the Boreal release code WB-RACE-4231.",
+    );
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..2)
+            .map(|_| {
+                scope.spawn(|| {
+                    let output = harness.workbuddy_hook(
+                        "UserPromptSubmit",
+                        "new",
+                        serde_json::json!({"prompt":"What is the Boreal release code?"}),
+                    );
+                    assert!(output.status.success());
+                    assert!(
+                        stdout_json(&output)["hookSpecificOutput"]["additionalContext"]
+                            .as_str()
+                            .unwrap()
+                            .contains("WB-RACE-4231")
+                    );
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    });
+    assert_eq!(harness.pending(), 0);
+    let state: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            harness
+                .root()
+                .join("workspaces/integration/control/pipeline_state.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["indexTraces"].as_array().unwrap().len(), 1);
 }
 
 fn stdout_json(output: &Output) -> serde_json::Value {

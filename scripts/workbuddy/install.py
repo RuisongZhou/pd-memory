@@ -20,7 +20,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-EVENTS = {"SessionStart": 20, "UserPromptSubmit": 120, "Stop": 180}
+EVENTS = {"SessionStart": 150, "UserPromptSubmit": 300, "Stop": 300, "SessionEnd": 300}
 TOOLS = {
     "memory_add", "memory_dream", "memory_flush", "memory_get",
     "memory_list", "memory_overview", "memory_search",
@@ -131,7 +131,7 @@ def owned_hook(hook, wrapper, binary):
         str(ROOT / "target/release/pd-memory"),
     }
     return bool(
-        words and words[-1] == "hook"
+        words and (words[-1] == "hook" or words[-2:] == ["hook", "--workbuddy"])
         and words[0] in executables
     )
 
@@ -154,7 +154,7 @@ def merge_hooks(current, wrapper, binary):
         hooks[event] = kept
     for event, timeout in EVENTS.items():
         hooks.setdefault(event, []).append({"hooks": [{
-            "type": "command", "command": shlex.quote(str(wrapper)) + " hook",
+            "type": "command", "command": shlex.quote(str(wrapper)) + " hook --workbuddy",
             "timeout": timeout,
         }]})
     return result
@@ -265,7 +265,7 @@ def verify_local(wrapper, mock):
         overview = run_json(command + ["overview"], allow_mock=mock)
         if overview.get("total_files") != 0:
             raise InstallError("Unexpected memory in verification directory")
-        hook = run_json(command + ["hook"], {
+        hook = run_json(command + ["hook", "--workbuddy"], {
             "hook_event_name": "SessionStart", "session_id": "installer-check",
         }, allow_mock=mock)
         if hook.get("continue") is not True:
@@ -299,6 +299,12 @@ def verify_local(wrapper, mock):
 
 def verify_model(wrapper):
     fact = "Boreal 项目的内部代号固定为 Nacre-731，全部交付文档必须使用中文。请长期记住这两条项目规则。"
+    for event in ("Stop", "SessionEnd"):
+        verify_model_lifecycle(wrapper, fact, event)
+    print("[check] real model: Stop -> first-session flush and SessionEnd -> flush; search and hook context passed")
+
+
+def verify_model_lifecycle(wrapper, fact, event):
     with tempfile.TemporaryDirectory(prefix="pd-memory-model-check-") as temporary:
         command = [str(wrapper), "--data-root", temporary]
         transcript = Path(temporary) / "transcript.jsonl"
@@ -310,26 +316,35 @@ def verify_model(wrapper):
                 ),
             }],
         }, ensure_ascii=False) + "\n", encoding="utf-8")
-        run_json(command + ["hook"], {"hook_event_name": "Stop",
+        run_json(command + ["hook", "--workbuddy"], {"hook_event_name": event,
             "session_id": "installer-model-check", "transcript_path": str(transcript),
             "last_assistant_message": "已记住这两条项目规则。",
         }, timeout=240)
-        stats = run_json(command + ["flush", "--reason", "installer-model-check"], timeout=240)
-        if stats.get("errors"):
-            raise InstallError("Model indexing failed; check endpoint, model and key")
+        if event == "SessionEnd":
+            overview = run_json(command + ["overview"])
+            if overview.get("pending_dialogue_turns") or not overview.get("total_files"):
+                raise InstallError("SessionEnd did not index the test fact before recall")
+        hook = run_json(command + ["hook", "--workbuddy"], {
+            "hook_event_name": "UserPromptSubmit", "session_id": "installer-new-session",
+            "prompt": "Boreal 项目之前约定的代号和文档语言是什么？",
+        }, timeout=300)
+        if "Nacre-731" not in hook.get("hookSpecificOutput", {}).get("additionalContext", ""):
+            raise InstallError("First-session flush and recall did not inject the test fact")
+        overview = run_json(command + ["overview"])
+        if overview.get("pending_dialogue_turns"):
+            raise InstallError("First-session flush left an indexing backlog")
         listing = run_json(command + ["list"])
         if not listing.get("count"):
             raise InstallError("Model check produced no memory files")
         recall = run_json(command + ["search", "Boreal 项目之前约定的代号和文档语言是什么？"], timeout=120)
         if "Nacre-731" not in json.dumps(recall, ensure_ascii=False):
             raise InstallError("Model search did not recall the test fact")
-        hook = run_json(command + ["hook"], {
+        hook = run_json(command + ["hook", "--workbuddy"], {
             "hook_event_name": "UserPromptSubmit", "session_id": "installer-model-check",
             "prompt": "Boreal 项目之前约定的代号和文档语言是什么？",
         }, timeout=120)
         if "Nacre-731" not in hook.get("hookSpecificOutput", {}).get("additionalContext", ""):
             raise InstallError("Model hook did not inject the test fact")
-    print("[check] real model: Stop capture -> flush -> search -> hook context passed")
 
 
 def restore(backup, manifest):

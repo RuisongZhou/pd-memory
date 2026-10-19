@@ -37,9 +37,10 @@ class MergeTests(unittest.TestCase):
     def test_hooks_preserve_mixed_groups_and_adopt_manual_install(self):
         wrapper = Path("/path with spaces/pd-memory-workbuddy")
         own = {"type": "command", "command": shlex.quote(str(wrapper)) + " hook"}
+        workbuddy = {"type": "command", "command": shlex.quote(str(wrapper)) + " hook --workbuddy"}
         other = {"type": "command", "command": "echo pd-memory-workbuddy hook"}
         original = {"custom": True, "hooks": {
-            "Stop": [{"matcher": "keep", "hooks": [own, other]}],
+            "Stop": [{"matcher": "keep", "hooks": [own, workbuddy, other]}],
             "PreCompact": [{"hooks": [other]}],
         }}
         merged = installer.merge_hooks(original, wrapper, Path("/bin/pd-memory"))
@@ -67,9 +68,13 @@ class MergeTests(unittest.TestCase):
                              for event in ["Stop", "SessionEnd", "PreCompact"]}}
         merged = installer.merge_hooks(current, Path("/wrapper"), Path("/binary"))
         self.assertEqual(len(merged["hooks"]["Stop"]), 1)
-        self.assertEqual(merged["hooks"]["SessionEnd"], [])
+        self.assertEqual(len(merged["hooks"]["SessionEnd"]), 1)
         self.assertEqual(merged["hooks"]["PreCompact"], [])
         self.assertNotIn("PD_MEMORY_PROVIDER=mock", json.dumps(merged))
+        for event, timeout in installer.EVENTS.items():
+            hook = merged["hooks"][event][-1]["hooks"][0]
+            self.assertTrue(hook["command"].endswith(" hook --workbuddy"))
+            self.assertEqual(hook["timeout"], timeout)
 
 
 class TransactionTests(unittest.TestCase):
