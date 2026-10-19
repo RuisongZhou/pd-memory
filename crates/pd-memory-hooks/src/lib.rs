@@ -19,6 +19,8 @@
 //!   `{"continue":true}` so hosts never see a silent failure.
 //!
 //! Event behavior lives in [`events`]; transcript parsing in [`transcript`].
+//! Per-host wire formats live in [`hosts`] (one adapter per platform), and the
+//! host-agnostic lock / first-recall / session-end policy in [`policy`].
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -29,12 +31,15 @@ use pd_memory_core::error::{MemoryError, Result};
 use serde::{Deserialize, Serialize};
 
 pub mod events;
+pub mod hosts;
+pub mod policy;
 pub mod transcript;
 
 pub use events::{
-    capture_only_with, derive_session_key, derive_workspace_id, dispatch_with,
-    render_overview_context, HookEngine,
+    capture_only_reading, capture_only_with, derive_session_key, derive_workspace_id,
+    dispatch_with, handle_with, render_overview_context, HookEngine, TranscriptReader,
 };
+pub use hosts::{CanonicalEvent, EventKind, HostAdapter, HostCaps};
 pub use transcript::{parse_transcript, DEFAULT_TRANSCRIPT_MESSAGES};
 
 /// Hook input payload. Extra host fields are preserved for fallback capture.

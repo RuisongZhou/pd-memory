@@ -494,8 +494,42 @@ fn codex_null_transcript_and_unknown_events_are_minimal() {
 #[test]
 fn hook_rejects_two_host_policies() {
     let harness = Harness::new();
-    let output = harness.run_with_stdin(&["hook", "--codex", "--workbuddy"], "{}");
-    assert!(!output.status.success());
+    for args in [
+        &["hook", "--codex", "--workbuddy"][..],
+        &["hook", "--host", "codex", "--workbuddy"],
+        &["hook", "--host", "workbuddy", "--codex"],
+        &["hook", "--host", "no-such-host"],
+    ] {
+        let output = harness.run_with_stdin(args, "{}");
+        assert!(!output.status.success(), "{args:?}");
+    }
+}
+
+#[test]
+fn host_flag_and_legacy_aliases_are_equivalent() {
+    // Same workspace and session per pair; outputs and lock directory match.
+    for (host, alias) in [("codex", "--codex"), ("workbuddy", "--workbuddy")] {
+        let mut outputs = Vec::new();
+        for args in [vec!["--host", host], vec![alias]] {
+            let harness = Harness::new();
+            harness.capture("old", "The Boreal codename is Nacre-731.");
+            let mut command = vec!["--workspace", "integration", "hook"];
+            command.extend(args);
+            let input = serde_json::json!({
+                "hook_event_name": "UserPromptSubmit", "session_id": "new",
+                "transcript_path": null, "prompt": "Boreal codename?",
+            });
+            let output = harness.run_with_stdin(&command, &input.to_string());
+            assert!(output.status.success(), "{}", stderr_text(&output));
+            assert_eq!(harness.pending(), 0, "{host}: first recall drains backlog");
+            assert!(harness
+                .root()
+                .join(format!("workspaces/integration/control/{host}/hooks.lock"))
+                .is_file());
+            outputs.push(String::from_utf8(output.stdout).unwrap());
+        }
+        assert_eq!(outputs[0], outputs[1], "{host}");
+    }
 }
 
 fn stdout_json(output: &Output) -> serde_json::Value {

@@ -1,0 +1,10 @@
+[
+  {
+    "role": "user",
+    "content": "Remember: the Boreal release codename is Nacre-731."
+  },
+  {
+    "role": "assistant",
+    "content": "Noted: Boreal ships as Nacre-731."
+  }
+]

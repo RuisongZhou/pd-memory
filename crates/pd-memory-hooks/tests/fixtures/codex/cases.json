@@ -1,0 +1,183 @@
+[
+  {
+    "name": "start injects overview; transcript_path is null",
+    "pending": 0,
+    "input": {
+      "hook_event_name": "SessionStart",
+      "session_id": "cx-1",
+      "transcript_path": null,
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "source": "startup"
+    },
+    "event": "Start",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": "<pd-memory>\nLong-term memory: 2 file(s) — 1 project, 1 feedback, 0 user profile(s).\nUse memory_search when durable preferences, rules, or project facts are relevant.\n</pd-memory>"
+      }
+    },
+    "calls": [
+      "overview"
+    ]
+  },
+  {
+    "name": "first recall drains backlog, then recalls",
+    "pending": 1,
+    "recall": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>",
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "cx-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "turn_id": "t1",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>"
+      }
+    },
+    "calls": [
+      "overview",
+      "flush:codex:first-recall",
+      "overview",
+      "retrieve:What is the Boreal codename?:2"
+    ]
+  },
+  {
+    "name": "later recall in the same session skips the barrier",
+    "pending": 1,
+    "recall": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>",
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "cx-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "turn_id": "t2",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>"
+      }
+    },
+    "calls": [
+      "retrieve:What is the Boreal codename?:2"
+    ]
+  },
+  {
+    "name": "stop captures and prints exactly continue (no hookSpecificOutput)",
+    "recall": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>",
+    "input": {
+      "hook_event_name": "Stop",
+      "session_id": "cx-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "turn_id": "t2",
+      "stop_hook_active": false,
+      "last_assistant_message": "Noted: Boreal ships as Nacre-731."
+    },
+    "event": "Capture",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "capture:2:cx-1:hook:Stop",
+      "maintenance:hook:Stop"
+    ]
+  },
+  {
+    "name": "session end only captures (3 s budget): no maintenance, no flush",
+    "pending": 1,
+    "input": {
+      "hook_event_name": "SessionEnd",
+      "session_id": "cx-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "reason": "other"
+    },
+    "event": "End",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "capture:2:cx-1:hook:SessionEnd"
+    ]
+  },
+  {
+    "name": "next session's first recall drains what session end left",
+    "pending": 1,
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "cx-2",
+      "transcript_path": null,
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "turn_id": "t1",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "overview",
+      "flush:codex:first-recall",
+      "overview",
+      "retrieve:What is the Boreal codename?:0"
+    ]
+  },
+  {
+    "name": "null transcript and no reply: nothing to capture",
+    "input": {
+      "hook_event_name": "Stop",
+      "session_id": "cx-2",
+      "transcript_path": null,
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default",
+      "last_assistant_message": null
+    },
+    "event": "Capture",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "maintenance:hook:Stop"
+    ]
+  },
+  {
+    "name": "unknown events are minimal",
+    "input": {
+      "hook_event_name": "SubagentStop",
+      "session_id": "cx-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "model": "gpt-test",
+      "permission_mode": "default"
+    },
+    "event": "Ignore",
+    "output": {
+      "continue": true
+    },
+    "calls": []
+  }
+]

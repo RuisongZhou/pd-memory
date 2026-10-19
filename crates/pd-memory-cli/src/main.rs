@@ -6,7 +6,6 @@
 
 mod commands;
 mod config_loader;
-mod host;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -52,12 +51,22 @@ enum Command {
         transport: ServeTransport,
     },
     /// Handle one agent lifecycle hook invocation (stdin JSON -> stdout JSON).
+    ///
+    /// Without a host, applies the generic Claude-Code-compatible contract.
+    /// With a host, adds its lock, first-recall backlog barrier, session-end
+    /// policy and output schema (see docs/hosts/README.md).
     Hook {
-        /// WorkBuddy session-end flush and first-recall backlog barrier.
+        /// Host adapter id.
+        #[arg(long, value_name = "ID", value_parser = host_ids(),
+              conflicts_with_all = ["workbuddy", "codex"])]
+        host: Option<String>,
+        /// Alias for `--host workbuddy`: session-end flush and first-recall
+        /// backlog barrier.
         #[arg(long, conflicts_with = "codex")]
         workbuddy: bool,
-        /// Codex first-recall backlog barrier; SessionEnd only captures and
-        /// Stop/SessionEnd output stays within Codex's strict schemas.
+        /// Alias for `--host codex`: first-recall backlog barrier; SessionEnd
+        /// only captures and Stop/SessionEnd output stays within Codex's
+        /// strict schemas.
         #[arg(long)]
         codex: bool,
     },
@@ -179,14 +188,18 @@ fn run(options: &GlobalOptions, command: Command) -> pd_memory_core::Result<()> 
         Command::Serve { transport } => match transport {
             ServeTransport::Mcp => commands::serve_mcp(options),
         },
-        Command::Hook { workbuddy, codex } => {
-            let host = if workbuddy {
-                Some(host::Host::WorkBuddy)
-            } else if codex {
-                Some(host::Host::Codex)
-            } else {
-                None
+        Command::Hook {
+            host,
+            workbuddy,
+            codex,
+        } => {
+            let id = match (host.as_deref(), workbuddy, codex) {
+                (Some(id), _, _) => Some(id),
+                (None, true, _) => Some("workbuddy"),
+                (None, false, true) => Some("codex"),
+                (None, false, false) => None,
             };
+            let host = id.and_then(pd_memory_hooks::hosts::by_id);
             // The hook contract requires exit code 0 and a valid JSON line even
             // on failure; `commands::hook` handles that internally.
             commands::hook(options, host);
@@ -216,6 +229,11 @@ fn run(options: &GlobalOptions, command: Command) -> pd_memory_core::Result<()> 
         Command::Snapshot { limit } => commands::snapshot(options, limit),
         Command::Doctor => commands::doctor(options),
     }
+}
+
+/// `--host` values: every registered adapter id.
+fn host_ids() -> clap::builder::PossibleValuesParser {
+    clap::builder::PossibleValuesParser::new(pd_memory_hooks::hosts::ids())
 }
 
 /// Configure `env_logger` (stderr by default, so MCP/hook stdout stays clean).
