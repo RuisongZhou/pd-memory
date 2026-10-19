@@ -1,22 +1,48 @@
 > **2026-10-19 更新：WorkBuddy 5.8.3**
 >
 > - 模拟器 + 真实 CodeBuddy CLI：56 PASS，0 WARN，0 FAIL，0 SKIP。
-> - GUI 自定义 MCP 编辑器显示配置路径 `~/.workbuddy/mcp.json`；保存、首次信任并重启后，
->   pd-memory 显示 **7/7 个工具已启用**。
+> - 已先移除本机 pd-memory 的 GUI/CLI MCP 注册和三个 hooks，保留模型凭据、已有记忆及其他配置，
+>   再向 WorkBuddy GUI Agent 提供仓库地址。Agent 读取文档并执行现有安装脚本，真实模型验收通过。
+>   重启后 GUI 显示 **7/7 个工具已启用**，原有 miora 连接器仍在；本机沿用了已有信任记录。
 > - Qwen 真实模型以独立临时数据验证 Stop 捕获 → flush（生成两份记忆）→ search →
 >   UserPromptSubmit additionalContext，均召回合成事实 Nacre-731。
-> - 上述 Qwen 和 GUI 服务注册验收不等同于 GUI 会话自动注入验收；后者仍未覆盖。
+> - GUI 两个独立会话已验证自动捕获、跨会话召回和上下文注入，过程见下方补验记录。
 >
 > 安装器补充验证（同日）：26 项离线安装回归通过，包含交互式隐藏密钥输入、重复安装、
 > 旧 mock hooks 清理、配置保留、相对路径、失败恢复和冲突回退。隔离 home 中的
 > release 源码构建安装、Qwen 真实模型完整验收及安装回退均通过。
-> Rust 307 项、比较器 12 项、差分 17/17 和三个 Android 默认 target 编译通过；
+> Rust 309 项、比较器 12 项、差分 17/17 和三个 Android 默认 target 编译通过；
 > Clippy 本机未安装，未执行。
 >
 > - 新生产安装入口及回退：[`../../scripts/workbuddy/install.sh`](../../scripts/workbuddy/install.sh)，
 >   流程见 [安装指南](../../docs/workbuddy.md)。密钥、真实配置和本机 transcript 不随证据提交。
 >
-> 以下内容保留 5.8.2 的历史载荷与流量样本；其中的旧 GUI 路径和旧 mock 安装方式不作为当前安装说明。
+## WorkBuddy 5.8.3 GUI 补验
+
+时间：2026-10-19 14:40–15:09（UTC+8）。Agent 使用 Space-Bunny，记忆模型使用真实 Qwen
+`qwen-plus`，记忆固定绑定默认 `~/.workbuddy/workspace`。未打包插件，未改宿主全局沙箱或审批设置。
+Agent 前台运行 `bash scripts/workbuddy/install.sh --apply --verify-model --non-interactive`；
+Cargo 替换构建产物的单次审批按 WorkBuddy 提示完成。
+
+初次 GUI 验收发现：宿主把 `<system-reminder>` 与 `<user_query>` 放进同一个 `input_text`，
+旧适配器过滤了整个文本块，只捕获到助手回复。新增回归先复现该失败，再修正为保留真实问题；
+单测、CLI 集成、模拟器和安装器验收样本均覆盖此格式。记忆引擎及其调度未变。
+
+修复后由同一 Agent 再次构建安装，并重启 WorkBuddy，按以下步骤验证：
+
+| 检查 | 实际证据 |
+|---|---|
+| GUI 会话 A | 给出合成事实：Copper Finch 的发布代号是 `Tern-5839`，交付前先运行离线差分测试；要求仅回复 Received，不调用工具或写原生记忆 |
+| 自动捕获 | A 的 transcript 中工具调用数为 0；L0 记录来源为 `hook:Stop`，包含完整用户事实与 Received，排除了宿主系统提醒 |
+| 索引 | 为立即验收，手动执行一次 `flush --reason gui-e2e-validation`，处理 2 个待处理会话/2 轮，写入 3 个文件，无错误；Project、Feedback 和 project.meta 中出现测试事实 |
+| GUI 会话 B | 新建独立会话，只问 Copper Finch 的代号和交付前置检查，不提供答案，并禁止工具调用、读文件和查历史对话 |
+| 自动召回 | `retrievalTraces` 记录了 B 的原始问题，`cache_hit=false`、`route=project`，选中 Copper Finch Project 与离线差分测试 Feedback 文件 |
+| 上下文注入 | WorkBuddy 日志记录 pd-memory 的 UserPromptSubmit 和 SessionStart hook 执行，以及 SessionStart 提供 additional context；B 的用户消息不含测试代号，工具调用数为 0，GUI 回复准确包含 `Tern-5839` 和离线差分测试要求 |
+
+此处验证的是自动捕获和自动注入，**即时索引使用了手动 flush**。默认 30 分钟/20 条触发条件
+未在 GUI 中加速或改写。原始日志与两次会话 transcript 留在本机，不发布账户信息、凭据或真实会话。
+
+以下内容保留 5.8.2 的历史载荷与流量样本；其中的旧 GUI 路径和旧 mock 安装方式不作为当前安装说明。
 
 # pd-memory × WorkBuddy — 端到端证据（EVIDENCE）
 

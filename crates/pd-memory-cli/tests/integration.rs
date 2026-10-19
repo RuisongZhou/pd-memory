@@ -272,7 +272,7 @@ fn hook_stdin_stdout_contract() {
     std::fs::write(
         &transcript,
         concat!(
-            r#"{"type":"message","role":"user","content":[{"type":"input_text","text":"remember: always answer in Chinese"}]}"#,
+            r#"{"type":"message","role":"user","content":[{"type":"input_text","text":"<system-reminder data-role=\"user-context\">host instructions</system-reminder>\n<user_query>remember: always answer in Chinese</user_query>"}]}"#,
             "\n",
             r#"{"type":"message","role":"assistant","content":[{"type":"output_text","text":"noted"}]}"#,
             "\n",
@@ -307,6 +307,21 @@ fn hook_stdin_stdout_contract() {
     let response: serde_json::Value =
         serde_json::from_str(String::from_utf8_lossy(&output.stdout).trim()).expect("hook JSON");
     assert_eq!(response["continue"], true);
+
+    let queue = std::fs::read_to_string(
+        harness
+            .root()
+            .join("workspaces/integration/control/l0_sessions.jsonl"),
+    )
+    .expect("Stop captured the GUI turn");
+    let captured: serde_json::Value = serde_json::from_str(queue.lines().last().unwrap()).unwrap();
+    assert_eq!(captured["source"], "hook:Stop");
+    assert_eq!(
+        captured["messages"][0]["content"],
+        "always answer in Chinese"
+    );
+    assert_eq!(captured["messages"][1]["content"], "noted");
+    assert!(!queue.contains("host instructions"));
 
     // Malformed stdin must never break the hook.
     let output = harness.run_with_stdin(&["hook", "--workspace", "integration"], "{not json");

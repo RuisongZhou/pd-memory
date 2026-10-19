@@ -382,7 +382,11 @@ def write_transcript(path: Path, session_id: str, cwd: Path, fact_sentence: str 
             "timestamp": now - 3000,
             "type": "message",
             "role": "user",
-            "content": [{"type": "input_text", "text": fact_sentence}],
+            "content": [{"type": "input_text", "text": (
+                '<system-reminder data-role="user-context">Host instructions.</system-reminder>\n'
+                '<system-reminder data-role="additional-data">Host metadata.</system-reminder>\n'
+                f'<user_query>{fact_sentence}</user_query>'
+            )}],
             "sessionId": session_id,
         },
         {

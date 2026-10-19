@@ -45,6 +45,26 @@ pd-memory 的记忆库。安装前应选定要绑定的目录；SDK 当前不包
 首次点击 pd-memory 的「信任」，确认 **7/7 个工具已启用**。信任记录由 WorkBuddy 管理，
 安装器不写审批文件，也不自动重启应用。再次安装同一路径时通常可沿用现有信任。
 
+## 通过 WorkBuddy Agent 安装
+
+把仓库地址 `https://github.com/RuisongZhou/pd-memory` 和“阅读文档、执行已有安装脚本”的要求
+发给 Agent 即可，无需打包插件。可直接复制 README 中的安装请求。
+
+本机已有模型配置和密钥时，Agent 应在仓库根目录前台执行：
+
+```bash
+bash scripts/workbuddy/install.sh --apply --verify-model --non-interactive
+```
+
+首次安装缺少配置时，`--non-interactive` 会明确报错退出。由用户在本地终端执行交互式安装，
+填写模型名、服务前缀和隐藏输入的密钥，再让 Agent 检查结果。不要把密钥发进聊天或写在命令参数中。
+
+WorkBuddy 5.8.3 本机实测：移除 pd-memory 的 MCP 和三个 hooks、保留模型配置与记忆后，
+Agent 根据上述仓库地址读取文档并成功重装，脚本的 MCP 与 Qwen 真实模型验收通过。
+Cargo 替换构建产物可能触发 WorkBuddy 的单次审批；后台执行可能无法完成该审批，应在前台执行。
+遵循应用的审批提示，不修改全局沙箱或审批设置。重装后重启应用，首次接入还需信任 MCP；
+本机沿用了已有信任，GUI 显示 7/7 个工具已启用。
+
 ## 参数与重复安装
 
 ```bash
@@ -159,6 +179,7 @@ hook 输入使用 snake_case，输出遵循宿主协议：
 ```
 
 Stop 使用 `transcript_path`，并以 `last_assistant_message` 补齐可能尚未落盘的最后一条回复。
+GUI 将系统提醒和 `<user_query>` 放在同一文本块时，适配器仅提取真实问题，排除宿主提醒。
 异常写 stderr，hook 继续宿主任务。因此不能只用 hook 的退出码判断模型是否可用；
 `--verify-model` 会断言生成文件和召回内容。
 

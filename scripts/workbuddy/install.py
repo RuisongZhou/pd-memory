@@ -303,7 +303,12 @@ def verify_model(wrapper):
         command = [str(wrapper), "--data-root", temporary]
         transcript = Path(temporary) / "transcript.jsonl"
         transcript.write_text(json.dumps({
-            "type": "user", "message": {"role": "user", "content": fact},
+            "type": "message", "role": "user", "content": [{
+                "type": "input_text", "text": (
+                    '<system-reminder data-role="user-context">Host instructions.</system-reminder>\n'
+                    f'<user_query>{fact}</user_query>'
+                ),
+            }],
         }, ensure_ascii=False) + "\n", encoding="utf-8")
         run_json(command + ["hook"], {"hook_event_name": "Stop",
             "session_id": "installer-model-check", "transcript_path": str(transcript),

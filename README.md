@@ -10,6 +10,16 @@ MCP stdio、Agent 生命周期 hooks 和 Android C ABI / JNI 接口。当前功�
 
 ## 一键接入 WorkBuddy
 
+也可以把下面这段话直接发给 WorkBuddy Agent，让它执行仓库现有脚本：
+
+> 请安装 https://github.com/RuisongZhou/pd-memory 。先读 README.md 和 docs/workbuddy.md，
+> 克隆仓库或复用本地副本，执行已有安装脚本并验收真实模型。沿用本机已有模型配置和密钥，
+> 默认绑定 WorkBuddy 工作目录，保留其他 MCP、hooks 和已有记忆，不改代码、不打包插件。
+> 缺少模型配置时先告诉我需要填写哪些信息，密钥通过本地终端隐藏输入，不放进聊天或命令参数。
+
+这条路径仍会经过 WorkBuddy 的命令审批；安装后需要重启，首次接入需要在 GUI 中信任 MCP。
+具体执行方式和本机验证结果见 [通过 Agent 安装](docs/workbuddy.md#通过-workbuddy-agent-安装)。
+
 先安装 WorkBuddy、Rust stable / Cargo 和 Python 3.9+，然后执行：
 
 ```bash

@@ -129,7 +129,7 @@ fn normalize_role(role: &str) -> &'static str {
 /// Convert a transcript `content` value into plain text.
 fn content_to_text(value: &Value) -> Option<String> {
     match value {
-        Value::String(text) => Some(text.clone()),
+        Value::String(text) => conversation_text(text).map(str::to_string),
         Value::Array(blocks) => {
             let mut collected = String::new();
             for block in blocks {
@@ -150,16 +150,11 @@ fn content_to_text(value: &Value) -> Option<String> {
                     }
                     _ => None,
                 };
-                if let Some(text) = text {
-                    // Hosts inject system reminders as user-context blocks; they
-                    // are not user-authored memory material.
-                    if text.trim_start().starts_with("<system-reminder") {
-                        continue;
-                    }
+                if let Some(text) = text.as_deref().and_then(conversation_text) {
                     if !collected.is_empty() {
                         collected.push('\n');
                     }
-                    collected.push_str(&text);
+                    collected.push_str(text);
                 }
             }
             if collected.is_empty() {
@@ -171,9 +166,27 @@ fn content_to_text(value: &Value) -> Option<String> {
         Value::Object(object) => object
             .get("text")
             .and_then(Value::as_str)
+            .and_then(conversation_text)
             .map(str::to_string),
         _ => None,
     }
+}
+
+fn conversation_text(text: &str) -> Option<&str> {
+    let mut rest = text.trim_start();
+    if !rest.starts_with("<system-reminder") {
+        return Some(text);
+    }
+    // WorkBuddy GUI combines host reminders and <user_query> in one block.
+    // Keep the user query, while excluding host instructions from memory.
+    while rest.starts_with("<system-reminder") {
+        rest = rest.split_once("</system-reminder>")?.1.trim_start();
+    }
+    rest.strip_prefix("<user_query>")?
+        .trim_end()
+        .strip_suffix("</user_query>")
+        .map(str::trim)
+        .filter(|query| !query.is_empty())
 }
 
 #[cfg(test)]
@@ -209,6 +222,43 @@ mod tests {
         assert_eq!(messages[0].content, "这个项目叫 Boreal");
         assert_eq!(messages[1].role, "assistant");
         assert_eq!(messages[1].content, "收到，记住了");
+    }
+
+    #[test]
+    fn extracts_workbuddy_gui_user_query_from_combined_context_block() {
+        let query = "Azure Heron release code is Kestrel-9462; literal </user_query> stays.";
+        let envelope = format!(
+            "<system-reminder data-role=\"user-context\">host instructions</system-reminder>\n\
+             <system-reminder data-role=\"additional-data\">host memory</system-reminder>\n\
+             <user_query>{query}</user_query>"
+        );
+        for content in [
+            serde_json::json!([{ "type": "input_text", "text": envelope }]),
+            serde_json::json!(envelope),
+            serde_json::json!({ "text": envelope }),
+        ] {
+            let record = serde_json::json!({
+                "type": "message", "role": "user", "content": content
+            });
+            let message = record_to_message(&record).expect("GUI user query");
+            assert_eq!(message.content, query);
+        }
+    }
+
+    #[test]
+    fn skips_workbuddy_context_without_a_complete_user_query() {
+        for text in [
+            "<system-reminder>host instructions</system-reminder>",
+            "<system-reminder>host instructions</system-reminder><user_query>incomplete",
+            "<system-reminder>incomplete<user_query>not user text</user_query>",
+            "<system-reminder>host instructions</system-reminder><user_query> </user_query>",
+        ] {
+            let record = serde_json::json!({
+                "type": "message", "role": "user",
+                "content": [{ "type": "input_text", "text": text }]
+            });
+            assert!(record_to_message(&record).is_none(), "{text}");
+        }
     }
 
     #[test]
