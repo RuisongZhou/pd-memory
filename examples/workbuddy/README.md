@@ -1,28 +1,39 @@
-# WorkBuddy integration examples
+# WorkBuddy integration
 
-Quick map of this directory (full guide: [`../../docs/workbuddy.md`](../../docs/workbuddy.md),
-upstream source: [`../../docs/upstream.md`](../../docs/upstream.md),
-latest run evidence: [`EVIDENCE.md`](EVIDENCE.md)).
+Production installation and design: [installation guide](../../docs/workbuddy.md).
+
+```bash
+bash scripts/workbuddy/install.sh --apply --verify-model
+```
+
+The installer builds release, creates the private model config and wrapper, merges
+GUI/CLI MCP and three user hooks, then checks the integration with isolated data.
+It previews by default; use --apply to write, --rollback to restore a deployment.
+The API key is entered through a hidden prompt, an existing environment variable,
+or --key-file. Only explicit --mock selects the offline demo.
 
 | File | Purpose |
 |---|---|
-| `pd-memory.config.json` | demo SDK config; `data_root` is relative to this file (`.run/data`), `PD_MEMORY_PROVIDER=mock` |
-| `workbuddy.mcp.json` | `mcpServers` fragment for the WorkBuddy **GUI connector registry** (`~/.workbuddy/connectors/default/mcp.json`) |
-| `workbuddy.cli.mcp.json` | `mcpServers` + `disabledMcpServers` fragment for the CodeBuddy CLI native `.mcp.json` |
-| `hooks/hooks.json` | plugin-level hooks (`<plugin>/hooks/hooks.json`) |
-| `hooks/settings.json` | full settings object for `--settings` / user settings (`~/.workbuddy/settings.json` → `"hooks"`) |
-| `hooks/README.md` | verified vs unverified matrix, install instructions, event mapping |
-| `install_workbuddy.sh` | dry-run by default; `--apply` merges MCP(+hooks) with backups; `--revert` restores |
-| `simulate_workbuddy.py` | end-to-end harness: contract simulator + real headless WorkBuddy CLI route |
-| `run_e2e.sh` | build + harness + tee to `EVIDENCE.log` |
-| `.gitignore` | run state/backups are never committed |
-
-One-command verification:
+| ../../scripts/workbuddy/install.py | Production installer, backup/rollback and validation |
+| install_workbuddy.sh | Alternate entry point forwarding to the same installer |
+| pd-memory.config.json | Offline demo SDK config, separate .run/data |
+| workbuddy.mcp.json | Mock GUI MCP fragment; custom services use ~/.workbuddy/mcp.json |
+| workbuddy.cli.mcp.json | Mock CodeBuddy CLI MCP fragment |
+| hooks/settings.json, hooks/hooks.json | Mock hook fixtures for manual/plugin experiments |
+| simulate_workbuddy.py | Contract simulator and real headless WorkBuddy CLI harness |
+| run_e2e.sh | Build and run harness; local mock model, no cloud credentials |
+| EVIDENCE.md | Verified scope, current deployment and historical protocol evidence |
 
 ```bash
-cd pd-memory
+# Installer tests
+cargo build --locked -p pd-memory-cli
+python3 -m unittest discover -s scripts/workbuddy -p 'test_*.py' -v
+
+# Host contract tests
 bash examples/workbuddy/run_e2e.sh
+bash examples/workbuddy/run_e2e.sh --no-real
 ```
 
-Passing `--verbose` echoes raw stdout/stderr, `--no-real` runs only the offline
-contract simulator, `--only-real` runs only the real WorkBuddy CLI route.
+The fixtures retain fake keys and placeholders; the production installer generates
+its own wrapper commands and does not load these mock fragments. Never commit
+real config, API keys, transcripts or generated memories.

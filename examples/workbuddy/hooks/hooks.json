@@ -1,5 +1,5 @@
 {
-  "description": "pd-memory lifecycle hooks: capture agent turns and inject long-term memory context. This is the plugin-level form (a plugin's hooks/hooks.json, declared from .codebuddy-plugin/plugin.json with \"hooks\": \"./hooks/hooks.json\"). Placeholders __PD_MEMORY_*__ are filled by install_workbuddy.sh --with-hooks or by hand. Only schema fields observed in real WorkBuddy/CodeBuddy plugins are used (type/command/timeout); no extra keys.",
+  "description": "Mock-only plugin hook fixture. Replace __PD_MEMORY_*__ placeholders manually for isolated experiments. The production installer generates wrapper hooks and does not read this fixture.",
   "hooks": {
     "SessionStart": [
       {

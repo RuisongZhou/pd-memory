@@ -8,6 +8,43 @@ MCP stdio、Agent 生命周期 hooks 和 Android C ABI / JNI 接口。当前功�
 随后由模型提取记忆；召回经过模型 gate、manifest 文件选择和正文读取。Dream 在暂存副本上
 整理记忆，提交后可以回滚。无需额外部署数据库、向量库或 HTTP 服务。
 
+## 一键接入 WorkBuddy
+
+先安装 WorkBuddy、Rust stable / Cargo 和 Python 3.9+，然后执行：
+
+```bash
+git clone https://github.com/RuisongZhou/pd-memory.git
+cd pd-memory
+bash scripts/workbuddy/install.sh --apply --verify-model
+```
+
+首次运行会询问模型名（默认 `qwen-plus`）、服务前缀地址和 API key；密钥输入不回显。
+服务地址使用你的供应商提供的 OpenAI 兼容地址，程序会追加 `/chat/completions`。
+脚本从本地源码构建 release，安装命令和配置，合并 GUI/CLI 的 MCP 与三个用户级 hooks，
+然后在临时目录验证真实模型的捕获、提取、搜索和上下文注入。验证会产生少量模型调用，
+测试事实不会进入正式记忆。已有安装再次运行会复用模型配置和密钥。
+
+默认绑定 `~/.workbuddy/workspace`；绑定其他已有目录时加 `--workspace /absolute/path/to/project`。
+运行配置中的密钥保存在 `~/.config/pd-memory/model.env`（权限 `600`），不进入 MCP JSON、
+命令行参数或仓库；回退备份可能包含旧密钥，备份目录权限为 `700`。
+
+安装后重启 WorkBuddy，进入「专家·技能·连接器 → 连接器 → 自定义连接器」，首次点击
+pd-memory 的「信任」，确认 **7/7 个工具已启用**。脚本不会代替宿主完成信任确认。
+已在 macOS / WorkBuddy 5.8.3 验证；Windows 没有对应的一键脚本。
+
+```bash
+# 只预览，不编译、不写文件、不调用模型
+bash scripts/workbuddy/install.sh --dry-run
+
+# 恢复最近一次安装前的文件，保留记忆数据
+bash scripts/workbuddy/install.sh --rollback
+```
+
+重复安装不会重复添加 hooks；原有 MCP、hooks 和其他设置会保留。安装或验收失败时自动恢复
+原文件；回退遇到安装后的用户修改会停止，避免覆盖新设置。
+无交互安装、离线演示、目录布局及排查见 [安装与集成指南](docs/workbuddy.md)。
+以下章节保留手动配置方法。
+
 ## 1. 编译与安装
 
 macOS / Linux 需要 Rust stable、Cargo、Git 和系统 C 编译工具链。
@@ -134,7 +171,7 @@ chmod 755 "$HOME/.local/bin/pd-memory-workbuddy"
 
 ### 4.1 添加 MCP 服务
 
-在 WorkBuddy 的连接器中心添加本地 stdio 服务：
+在 WorkBuddy 的「连接器 → 自定义连接器 → 添加 MCP」中添加本地 stdio 服务：
 
 | 字段 | 值 |
 |---|---|
@@ -161,11 +198,12 @@ chmod 755 "$HOME/.local/bin/pd-memory-workbuddy"
 
 本机验证过的 WorkBuddy 版本使用以下配置位置：
 
-- GUI 连接器注册表：`~/.workbuddy/connectors/default/mcp.json`。
+- GUI 自定义 MCP：`~/.workbuddy/mcp.json`（5.8.3 界面显示并验证）。
+- `~/.workbuddy/connectors/default/mcp.json` 是市场连接器注册表，本安装流程不修改它。
 - CodeBuddy CLI 用户级 MCP：`~/.workbuddy/.mcp.json`，原生 CLI 片段见
   [workbuddy.cli.mcp.json](examples/workbuddy/workbuddy.cli.mcp.json)。
 - GUI 使用自己的严格 MCP 配置，单独改 CLI 的 `.mcp.json` 不代表 GUI 已接入。
-  GUI 建议从连接器中心添加；直接修改注册表后的接受情况尚未验证。
+  首次连接需在自定义连接器中点击「信任」；本机已验证重启后仍显示 7/7 工具。
 
 服务提供 7 个工具：`memory_add`、`memory_flush`、`memory_search`、`memory_list`、
 `memory_get`、`memory_overview`、`memory_dream`。
@@ -226,11 +264,12 @@ chmod 755 "$HOME/.local/bin/pd-memory-workbuddy"
 | 返回演示内容 | 是否仍设置 `PD_MEMORY_PROVIDER=mock`；不要用离线示例安装结果接生产模型 |
 | 缺少真实记忆但 hooks 没有阻止聊天 | hooks 设计为出错后继续；查看 stderr，执行 doctor 和手动 flush 定位 |
 
-仓库自带的 `install_workbuddy.sh` **固定注入 mock**，用于隔离验证，不能直接作为上面的
-真实模型安装方式。需要检查它的配置合并效果时，可先 dry-run：
+生产安装入口为 `scripts/workbuddy/install.sh`；
+`examples/workbuddy/install_workbuddy.sh` 也转发到同一实现。默认预览，`--apply` 才写入。
+只有显式传入 `--mock` 才安装演示模型：
 
 ```bash
-bash examples/workbuddy/install_workbuddy.sh --mcp-target both --with-hooks
+bash scripts/workbuddy/install.sh --dry-run
 ```
 
 不连接真实模型的 WorkBuddy 契约测试：
@@ -240,7 +279,8 @@ bash examples/workbuddy/run_e2e.sh --no-real
 ```
 
 详细载荷、安装回退和历史验证范围见 [WorkBuddy 集成指南](docs/workbuddy.md)。
-真实无头 CLI 曾验证通过；GUI 注入尚未做同等验证，见 [验证说明](docs/upstream.md)。
+WorkBuddy 5.8.3 的 56 项模拟器/真实 CLI 检查、GUI 7/7 工具及独立 Qwen 链路已验证；
+GUI 会话中的自动注入仍需单独验收，见 [验证说明](docs/upstream.md)。
 
 ## 5. 数据与日常操作
 

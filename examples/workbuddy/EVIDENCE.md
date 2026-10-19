@@ -1,8 +1,28 @@
+> **2026-10-19 更新：WorkBuddy 5.8.3**
+>
+> - 模拟器 + 真实 CodeBuddy CLI：56 PASS，0 WARN，0 FAIL，0 SKIP。
+> - GUI 自定义 MCP 编辑器显示配置路径 `~/.workbuddy/mcp.json`；保存、首次信任并重启后，
+>   pd-memory 显示 **7/7 个工具已启用**。
+> - Qwen 真实模型以独立临时数据验证 Stop 捕获 → flush（生成两份记忆）→ search →
+>   UserPromptSubmit additionalContext，均召回合成事实 Nacre-731。
+> - 上述 Qwen 和 GUI 服务注册验收不等同于 GUI 会话自动注入验收；后者仍未覆盖。
+>
+> 安装器补充验证（同日）：26 项离线安装回归通过，包含交互式隐藏密钥输入、重复安装、
+> 旧 mock hooks 清理、配置保留、相对路径、失败恢复和冲突回退。隔离 home 中的
+> release 源码构建安装、Qwen 真实模型完整验收及安装回退均通过。
+> Rust 307 项、比较器 12 项、差分 17/17 和三个 Android 默认 target 编译通过；
+> Clippy 本机未安装，未执行。
+>
+> - 新生产安装入口及回退：[`../../scripts/workbuddy/install.sh`](../../scripts/workbuddy/install.sh)，
+>   流程见 [安装指南](../../docs/workbuddy.md)。密钥、真实配置和本机 transcript 不随证据提交。
+>
+> 以下内容保留 5.8.2 的历史载荷与流量样本；其中的旧 GUI 路径和旧 mock 安装方式不作为当前安装说明。
+
 # pd-memory × WorkBuddy — 端到端证据（EVIDENCE）
 
 > 本文保留先前运行的历史证据摘要；发布时将开发机绝对路径替换为 `/path/to/pd-memory`。2026-10-19 的流程对齐后，最终注入文本已恢复上游四段结构，
 > no-op Dream 返回 success 且不替换快照；下文旧输出中的 `<memory-context>` / skipped 仅代表历史行为。
-> 本次重新运行了离线 contract simulator：30 PASS、0 WARN、0 FAIL；未重跑真实 WorkBuddy CLI。
+> 首次独立发布时仅重跑了离线 contract simulator（30 PASS）；本页开头记录后续完整 CLI 和部署验证。
 
 > 本文件是 `examples/workbuddy/run_e2e.sh` **真实运行**的捕获摘要。
 > 所有数据均为合成数据；不包含真实 API key、用户配置或真实会话内容。

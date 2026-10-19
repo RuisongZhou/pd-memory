@@ -1,361 +1,202 @@
-# pd-memory × WorkBuddy 集成指南
+# WorkBuddy 安装与集成
 
-本文说明如何把 `pd-memory`（Rust 记忆 SDK）接入 WorkBuddy（腾讯 CodeBuddy 家族的桌面 Agent），
-以及如何在本机**无登录、无外网**地验证 MCP stdio 与生命周期 hooks 两条链路。
+pd-memory 通过 stdio MCP 提供七个工具，通过用户级 hooks 捕获对话并注入召回上下文。
+不需要部署 HTTP 服务、数据库或常驻调度进程。安装脚本只完成宿主接线，不改变记忆引擎行为。
 
-- 基线版本：**WorkBuddy 5.8.2**，内置 **CodeBuddy Code CLI 2.161.0**（`bin/codebuddy` + `dist/codebuddy-lite-wb.mjs`）
-- 验证环境：macOS（本机 `/Applications/WorkBuddy.app`），日期见 `examples/workbuddy/EVIDENCE.md`
-- 事实来源：[上游与验证说明](upstream.md) + 本目录脚本的实测输出
+## 安装
 
----
+前置条件：macOS、已安装 WorkBuddy、Python 3.9+、Rust stable / Cargo、系统 C 编译工具链。
+WorkBuddy 5.8.3 已做本机验收。脚本使用 POSIX shell 和 Python 标准库；Windows 未覆盖。
 
-## 1. 一句话结论
+在仓库根目录执行：
 
-| 链路 | 状态 | 说明 |
-|---|---|---|
-| MCP stdio server | ✅ 真实 CLI 已验证 | `pd-memory serve mcp` 能被真实 WorkBuddy CLI 拉起，完成 `initialize`（`protocolVersion=2025-11-25`）→ `notifications/initialized` → `tools/list`（7 个工具） |
-| Hooks（SessionStart / UserPromptSubmit / Stop） | ✅ 真实 CLI 已验证 | 真实 WorkBuddy CLI `-p` 会话会以**真实 snake_case stdin JSON** 调用 hook；`Stop` 携带 `transcript_path` 与 `last_assistant_message`；`UserPromptSubmit` 的 `hookSpecificOutput.additionalContext` 会被注入模型请求 |
-| 无头端到端（无登录/无网络） | ✅ 已验证 | 用 `models.json` 自定义模型指向本地 SSE mock 端点，绕过默认模型登录限制 |
-| SessionEnd / PreCompact | ⚠️ 未触发 | 单次 `-p` 运行不触发；事件存在于运行时枚举，载荷字段已知，GUI 交互场景预期会触发但未实测 |
-| GUI 内注入 | ⚠️ 未验证 | 不启动 GUI 的约束下未做人工冒烟；GUI 以 `--setting-sources=user --strict-mcp-config` 启动（见 §6.4），因此 hooks 走用户级设置、MCP 走 GUI 连接器/插件 |
+```bash
+bash scripts/workbuddy/install.sh --apply --verify-model
+```
 
----
+首次运行依次询问模型名（默认 `qwen-plus`）、API 服务前缀和密钥。密钥使用隐藏输入。
+`openai-chat` 会在服务前缀后追加 `/chat/completions`；`anthropic` 使用 Messages API，
+通过 `--api-type anthropic --model <name> --base-url <prefix>` 选择。
+`openai-responses`、`google` 尚未实现，安装器不接受这些类型。
 
-## 2. 本机安装布局（已核对）
+默认绑定已有的 `~/.workbuddy/workspace`。其他工作目录用：
 
-| 路径 | 用途 |
+```bash
+bash scripts/workbuddy/install.sh --apply --verify-model \
+  --workspace /absolute/path/to/project
+```
+
+这是单工作目录安装：用户级 hooks 和 MCP 都固定使用该目录。WorkBuddy 切换空间不会自动切换
+pd-memory 的记忆库。安装前应选定要绑定的目录；SDK 当前不包含 General 多项目路由。
+
+安装器执行以下步骤：
+
+1. 读取并验证已有 JSON，解析绝对路径，读取现有或新提供的模型配置。
+2. 从当前源码构建 release；有现成二进制时可用 `--binary /absolute/path/to/pd-memory`。
+3. 备份将修改的文件，安装二进制、wrapper 和私有模型配置。
+4. 合并 GUI/CLI MCP 和 `SessionStart`、`UserPromptSubmit`、`Stop` hooks，保留其他条目。
+5. 在临时数据目录验证 MCP 握手、七个工具、工具调用与 SessionStart hook。
+6. 指定 `--verify-model` 时，额外验证 Stop 捕获 → 提取 → 搜索 → UserPromptSubmit 注入。
+
+模型验收只发送合成的 Boreal 项目事实，会产生少量 API 调用；测试目录结束后删除。
+不传 `--verify-model` 只检查本地链路，输出会明确提示模型连通性未验证。
+
+安装后重启 WorkBuddy，进入「专家·技能·连接器 → 连接器 → 自定义连接器」，
+首次点击 pd-memory 的「信任」，确认 **7/7 个工具已启用**。信任记录由 WorkBuddy 管理，
+安装器不写审批文件，也不自动重启应用。再次安装同一路径时通常可沿用现有信任。
+
+## 参数与重复安装
+
+```bash
+# 默认也是预览：不编译、不写文件、不读入新密钥、不发模型请求
+bash scripts/workbuddy/install.sh --dry-run
+
+# 再次运行：复用已有模型、密钥和工作目录，不重复添加 hooks
+bash scripts/workbuddy/install.sh --apply --verify-model
+
+# 由密钥管理器预先导出 QWEN_API_KEY，适合无交互环境
+bash scripts/workbuddy/install.sh --apply --non-interactive --verify-model \
+  --model qwen-plus --base-url "$QWEN_BASE_URL" --api-key-env QWEN_API_KEY
+
+# 或读取只包含 API key 的文件；不要把密钥直接写进命令参数
+bash scripts/workbuddy/install.sh --apply --non-interactive \
+  --model qwen-plus --base-url "$QWEN_BASE_URL" --key-file /private/path/api-key
+```
+
+`QWEN_BASE_URL` 由调用者设置为自己的服务前缀。默认从环境变量 `PD_MEMORY_API_KEY` 读取密钥；
+其次复用本机 `model.env`。文件权限设为 `600`，配置目录和备份目录设为 `700`；原配置的备份可能包含旧密钥。
+wrapper 固定读取同一份配置和密钥，并清除可能导致分库或误用 mock 的 `PD_MEMORY_*` 配置覆盖变量。
+手动命令仍可显式使用 `--data-root` 或 `--workspace`。
+
+| 参数 | 用途 |
 |---|---|
-| `/Applications/WorkBuddy.app` | 桌面应用（5.8.2） |
-| `.../Contents/Resources/app.asar.unpacked/cli/bin/codebuddy` | CodeBuddy Code CLI 入口（需要 Node 运行） |
-| `.../cli/dist/codebuddy-lite-wb.mjs` | 唯一实际存在的应用 bundle（必须强制 lite-wb 才能启动） |
-| `~/.workbuddy/binaries/node/versions/22.22.2-6/bin/node` | 应用自带的 Node（v22.22.2），无需 PATH 里有 node |
-| `~/.workbuddy/settings.json` | 用户级设置（GUI 只加载 user 级；hooks 写在这里） |
-| `~/.workbuddy/.mcp.json` | CLI 用户级 MCP 配置（CLI `mcp` 子命令的 user scope） |
-| `~/.workbuddy/connectors/default/mcp.json` | GUI「连接器中心」注册表（`mcpServers` map；GUI 实际通过 `CODEBUDDY_MCP_CONFIG` 注入） |
-| `~/.workbuddy/plugins/cache/**` | 已安装插件（插件可同时携带 `.mcp.json` 与 `hooks/hooks.json`） |
-| `~/.workbuddy/projects/<encoded-cwd>/<sessionId>.jsonl` | 桌面端会话 transcript（hook 输入的 `transcript_path` 指向同类文件） |
-| `~/.workbuddy/logs/daemon.log` | GUI sidecar 启动命令行（集成排查入口） |
+| `--apply` | 正式安装；不传时只预览 |
+| `--verify-model` | 用临时数据做真实模型验收；与 `--mock` 互斥 |
+| `--mcp-target gui / cli / both` | 默认同时接入 GUI 和 CLI；三个 hooks 默认安装 |
+| `--home <dir>` | 安装根目录，默认当前用户 home；用于隔离测试 |
+| `--workbuddy-home <dir>` | 自定义 WorkBuddy 用户目录，默认 `<home>/.workbuddy` |
+| `--workspace <dir>` | 绑定的已有工作目录；重复安装默认沿用原值 |
+| `--data-root <dir>` | 记忆数据目录；重复安装默认沿用原值 |
+| `--binary <path>` | 使用现有可执行文件，跳过 Cargo 构建 |
+| `--non-interactive` | 缺少配置时退出，不询问输入 |
+| `--rollback [backup-dir]` | 恢复最近一次或指定安装前的文件 |
+| `--mock` | 显式离线演示，不能替代真实记忆模型 |
 
-> 关键限制（来自 `daemon.log` 实测）：**GUI 用 `--setting-sources=user --strict-mcp-config` 启动 CLI**。
-> 即：项目级 `.codebuddy/settings.json` 的 hooks **不会**被 GUI 加载；用户手写 `.mcp.json` 也**不会**被 GUI 采用，
-> GUI 里的 MCP 必须落到「连接器中心」或插件里。
+旧入口 `examples/workbuddy/install_workbuddy.sh` 转发到同一实现。旧脚本的 `--with-hooks` 已不需要，
+旧的 `--mcp-target connector` 改为 `gui`；GUI 写入位置已经修正。旧文件旁的 `.bak.*` 不属于新安装器的
+回退记录，需要按原备份手动恢复。
 
----
+## 文件布局与备份回退
 
-## 3. 目录内容
+| 路径 | 内容 |
+|---|---|
+| `~/.local/bin/pd-memory` | release 二进制 |
+| `~/.local/bin/pd-memory-workbuddy` | MCP、hooks 和手动命令共用的 wrapper |
+| `~/.config/pd-memory/config.json` | SDK 配置；不包含 API key |
+| `~/.config/pd-memory/model.env` | 私有密钥 |
+| `~/.local/share/pd-memory` | 正式记忆数据，备份回退不删除它 |
+| `~/.workbuddy/mcp.json` | GUI「自定义连接器」配置；5.8.3 界面实测 |
+| `~/.workbuddy/.mcp.json` | CodeBuddy CLI 用户级 MCP 配置 |
+| `~/.workbuddy/settings.json` | 用户级 hooks 与原有其他设置 |
+| `~/.local/state/pd-memory/installations/<id>` | 本次改动清单、原文件字节与权限 |
 
+`~/.workbuddy/connectors/default/mcp.json` 是市场连接器注册表，安装器不修改它。
+GUI 使用自己的严格 MCP 配置，单独修改 CLI 的 `.mcp.json` 不代表 GUI 已接入。
+
+```bash
+bash scripts/workbuddy/install.sh --rollback
+# 或恢复某次指定安装；从安装输出取得实际目录
+bash scripts/workbuddy/install.sh --rollback /absolute/path/to/installations/<id>
 ```
-examples/workbuddy/
-├── pd-memory.config.json        # 演示用 SDK 配置（相对路径 data_root，见 §5.1 注意事项）
-├── workbuddy.mcp.json           # GUI 连接器注册表用的 mcpServers 片段（绝对路径占位）
-├── workbuddy.cli.mcp.json       # CodeBuddy CLI 原生 .mcp.json 片段（user/project scope / --mcp-config）
-├── hooks/
-│   ├── hooks.json               # 插件级 hooks（插件 hooks/hooks.json，含顶层 description）
-│   ├── settings.json            # 完整 settings 对象（{"hooks":{...}}，用于 --settings 或合并用户设置）
-│   └── README.md                # 已验证/未验证清单与安装方式
-├── install_workbuddy.sh         # 合并 MCP(+可选 hooks) 到 WorkBuddy 配置：默认 dry-run，--apply 带备份，--revert 恢复
-├── simulate_workbuddy.py        # 端到端 harness：路线 A 契约模拟器 + 路线 B 真实 CLI 无头
-├── run_e2e.sh                   # 一条命令：cargo build + 模拟器 + tee EVIDENCE.log
-├── EVIDENCE.md                  # 最近一次真实运行捕获的输出证据
-└── .run/                        # 运行时状态（gitignored）：data root、transcripts、CLI 配置、探针日志
+
+每次有改动的安装保存一个 manifest；重复执行且内容相同不产生新备份。
+安装、协议检查或模型验收失败时自动恢复已修改文件。安装器会阻止并发安装，并在写入前检查文件
+是否被 WorkBuddy 或其他进程改动。
+
+回退前会校验全部目标文件和备份摘要；若安装后文件又被修改，整次回退停止，不会覆盖新设置。
+此时保留备份，按 manifest 对照合并，或先另存用户修改后再恢复。回退不会删除记忆目录；
+首次安装新建的二进制和配置文件会被移除，已有文件恢复原字节与权限。
+
+## MCP 与 hooks 的设计
+
+```text
+WorkBuddy 工具调用 → wrapper → pd-memory serve mcp → MemoryEngine
+WorkBuddy 生命周期 → wrapper → pd-memory hook → 同一配置、同一工作目录、同一数据目录
 ```
 
----
+MCP 提供：`memory_add`、`memory_flush`、`memory_search`、`memory_list`、
+`memory_get`、`memory_overview`、`memory_dream`。stdout 只输出 JSON-RPC，诊断走 stderr。
 
-## 4. MCP 接入
-
-### 4.1 字段格式（来自真实文件/实测）
-
-stdio server 的最小片段：
+GUI/CLI 的 MCP 条目均指向 wrapper，配置不包含密钥：
 
 ```json
 {
   "mcpServers": {
     "pd-memory": {
       "type": "stdio",
-      "command": "/abs/path/target/debug/pd-memory",
-      "args": ["--config", "/abs/path/examples/workbuddy/pd-memory.config.json", "serve", "mcp"],
-      "env": { "PD_MEMORY_PROVIDER": "mock", "PD_MEMORY_DATA_ROOT": "/abs/path/examples/workbuddy/.run/data" },
-      "timeout": 120000,
-      "disabled": false
+      "command": "/absolute/path/to/.local/bin/pd-memory-workbuddy",
+      "args": ["serve", "mcp"],
+      "timeout": 120000
     }
   }
 }
 ```
 
-| 字段 | 说明 |
-|---|---|
-| `type` | `stdio`（本地进程）；远端还有 `sse` / `http` / `streamableHttp` |
-| `command` / `args` | 可执行文件与参数（stdio 必填 `command`） |
-| `env` | 子进程环境变量；真实 WorkBuddy 注册表里大量使用 `${VAR}` 展开 |
-| `timeout` | 毫秒；CLI 内置 MCP 连接默认 20s |
-| `disabled` | 仅 GUI 连接器注册表使用（`false` 表示启用）；CLI 原生 `.mcp.json` 不用这个字段，而是顶层 `disabledMcpServers` |
-| `runtime` / `staticEnv` / `npmRegistry` | WorkBuddy 连接器专用扩展（npx/uvx 场景），本地二进制不需要 |
-
-### 4.2 放哪里
-
-| 场景 | 文件 | 备注 |
+| 事件 | 行为 | 安装器设置的超时 |
 |---|---|---|
-| 真实 CLI 集成测试（推荐） | 任意路径 + `--mcp-config <file> --strict-mcp-config` | ✅ 实测会真正拉起 stdio server，且发生在模型调用之前 |
-| CLI 用户级 | `~/.workbuddy/.mcp.json`（`CODEBUDDY_CONFIG_DIR=~/.workbuddy` 时） | 手写条目在 `mcp list` 里可能显示 `Needs approval`；`codebuddy mcp add -s user ...` 写入的显示 `✓ Connected` |
-| CLI 项目级 | `<project>/.mcp.json` | 同上审批问题 |
-| GUI 连接器注册表 | `~/.workbuddy/connectors/default/mcp.json` | 形状见 `workbuddy.mcp.json`；**手动改后 GUI 是否接受未验证**（受 connector-states / marketplace 元数据约束，需重启 GUI） |
-| 插件（推荐分发形态） | `<plugin>/.codebuddy-plugin/plugin.json` 声明 `"mcpServers": "./.mcp.json"` | ✅ CLI `--plugin-dir` 实测可拉起插件 MCP；GUI 插件安装流程未验证 |
+| SessionStart | 注入记忆概览，不调用模型 | 20 秒 |
+| UserPromptSubmit | 按问题召回，输出 additionalContext | 120 秒 |
+| Stop | 从 transcript 捕获对话，再检查到期维护 | 180 秒 |
 
-### 4.3 安装脚本（默认 dry-run，绝不破坏无关条目）
-
-```bash
-cd pd-memory
-
-# 1) 先看 diff（不写任何文件）
-./examples/workbuddy/install_workbuddy.sh                      # 默认目标：GUI 连接器注册表
-./examples/workbuddy/install_workbuddy.sh --mcp-target both --with-hooks   # 同时看 hooks 合并 diff
-
-# 2) 确认后应用（自动备份为 *.bak.<timestamp>）
-./examples/workbuddy/install_workbuddy.sh --apply --mcp-target both --with-hooks
-
-# 3) 回滚到最近一次备份（当前文件会另存为 *.pre-revert.bak.<timestamp>）
-./examples/workbuddy/install_workbuddy.sh --revert --mcp-target both --with-hooks
-```
-
-- 合并是**幂等**的：只替换 `mcpServers["pd-memory"]`，其它 server 原样保留；
-- hooks 合并只替换 `description` 以 `pd-memory:` 开头的组（本仓库生成的组不带 description，改按命令指纹识别），其它事件/组保留；
-- `--workbuddy-home` / `--binary` / `--config` / `--data-root` 可覆盖路径；
-- 脚本不会删除任何用户数据；写坏的 JSON 会拒绝处理（打印错误退出码 2）。
-
-### 4.4 MCP server 纪律
-
-- **stdout 只能输出 JSON-RPC**（逐行 JSON）；日志一律走 stderr，否则 CLI 解析失败。
-- `initialize` 必须回显客户端请求的 `protocolVersion`（WorkBuddy CLI 发 `2025-11-25`）。
-- 工具清单固定 7 个：`memory_search`、`memory_list`、`memory_get`、`memory_overview`、`memory_flush`、`memory_dream`、`memory_add`。
-
----
-
-## 5. Hooks 接入
-
-### 5.1 配置位置与结构
+hook 输入使用 snake_case，输出遵循宿主协议：
 
 ```json
-{
-  "hooks": {
-    "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "<pd-memory> --config <cfg> hook", "timeout": 20 } ] }
-    ],
-    "UserPromptSubmit": [
-      { "hooks": [ { "type": "command", "command": "...", "timeout": 60 } ] }
-    ],
-    "Stop": [
-      { "hooks": [ { "type": "command", "command": "...", "timeout": 60 } ] }
-    ],
-    "SessionEnd": [ { "hooks": [ { "type": "command", "command": "...", "timeout": 20 } ] } ],
-    "PreCompact": [ { "hooks": [ { "type": "command", "command": "...", "timeout": 120 } ] } ]
-  }
-}
+{"hook_event_name":"UserPromptSubmit","session_id":"example","cwd":"/project","prompt":"之前的约定是什么？"}
 ```
-
-| 配置位置 | 作用域 | 状态 |
-|---|---|---|
-| `~/.workbuddy/settings.json` 顶层 `"hooks"` | 用户级（GUI 唯一加载的设置来源） | ✅ CLI 实测触发；GUI 侧按启动参数推断会加载（未做 GUI 冒烟） |
-| `<project>/.codebuddy/settings.json` | 项目级 | ✅ CLI 实测（`--setting-sources project`）；❌ GUI 不加载 |
-| `<plugin>/hooks/hooks.json` + `plugin.json.hooks` | 插件级 | ✅ CLI `--plugin-dir` 实测；GUI 插件安装未验证 |
-| `--settings <file>` | 单次运行 | ✅ 测试最方便（本仓库 `hooks/settings.json`） |
-
-**只使用真实插件里出现过的字段**：command hook 用 `type` / `command` / `timeout`（可选 `statusMessage`、`shell`、`once`、`async`…）；
-`description` 只允许出现在 hooks.json 顶层，**不要**放进 command 对象（避免严格校验时静默不加载）。
-
-> **相对路径语义（已实现并验证）**：CLI 的 `config_loader` 把配置里的相对 `data_root` / `workspace_root` 一律按
-> **配置文件所在目录**解析（不是进程 cwd）——因为 hook 子进程 cwd 不固定（`SessionStart` 甚至没有 `cwd`）。
-> 因此本仓库 `pd-memory.config.json` 使用 `"data_root": ".run/data"`，无论从哪个目录启动都指向 `examples/workbuddy/.run/data`。
-> `install_workbuddy.sh` 与 `simulate_workbuddy.py` 仍统一生成绝对路径，避免歧义。
-
-### 5.2 事件映射
-
-| 事件 | 触发时机 | pd-memory 动作 |
-|---|---|---|
-| `SessionStart` | CLI 进程启动/恢复会话 | 召回：返回 `hookSpecificOutput.additionalContext` 注入记忆上下文 |
-| `UserPromptSubmit` | 用户提交 prompt、模型调用前 | 召回：注入相关记忆（真实 CLI 会把 `additionalContext` 放进模型请求） |
-| `Stop` | 一轮结束、拿到最终回复 | 捕获：读 `transcript_path` / `last_assistant_message` 入 L0 队列，按阈值 flush |
-| `SessionEnd` | 会话结束（`-p` 不触发） | 捕获：会话尾部 |
-| `PreCompact` | 上下文压缩前（`-p` 不触发） | flush / dream，避免压缩丢信息 |
-
-`matcher` 是**正则**（不是通配符）：空 / `"*"` / 缺省匹配全部；`SessionStart` 匹配 `source`，`PreCompact` 匹配 `trigger`；
-`UserPromptSubmit` / `Stop` 无匹配值，matcher 被忽略。本仓库配置不写 matcher，以免漏掉 `resume` 等来源。
-
-### 5.3 输入契约（真实 CLI 实测，snake_case）
 
 ```json
-{"hook_event_name":"SessionStart","session_id":"01a1...","transcript_path":"/…/projects/<enc>/<sid>.jsonl","source":"startup","permission_mode":"default","client":"CLI","version":"2.161.0","model":"mock-model"}
-{"hook_event_name":"UserPromptSubmit","session_id":"01a1...","transcript_path":"…","cwd":"/…/project","prompt":"请记住：…","is_internal_continuation":false,"permission_mode":"default",…}
-{"hook_event_name":"Stop","session_id":"01a1...","transcript_path":"…","cwd":"…","stop_hook_active":false,"agent_type":"cli","last_assistant_message":"MOCK_REPLY: …","background_tasks":[],"session_crons":[],…}
+{"continue":true,"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"..."}}
 ```
 
-- `SessionStart` **没有 `cwd`**：用 `CODEBUDDY_PROJECT_DIR` / `CLAUDE_PROJECT_DIR` 环境变量或从 `transcript_path` 反推。
-- 所有事件都有 `transcript_path`；`Stop` 直接带最终回复，优先用它做抽取，需要工具轨迹再读 transcript。
-- hook 子进程还会收到 `CODEBUDDY_PLUGIN_ROOT` / `CLAUDE_PLUGIN_ROOT` 等插件变量。
+Stop 使用 `transcript_path`，并以 `last_assistant_message` 补齐可能尚未落盘的最后一条回复。
+异常写 stderr，hook 继续宿主任务。因此不能只用 hook 的退出码判断模型是否可用；
+`--verify-model` 会断言生成文件和召回内容。
 
-### 5.4 输出契约
-
-`pd-memory hook` 在 stdout 输出**一行 JSON**（解析失败时 CLI 会把 stdout 当普通消息文本）：
-
-```jsonc
-{
-  "continue": true,
-  "systemMessage": "可选：展示给用户",
-  "hookSpecificOutput": {
-    "hookEventName": "UserPromptSubmit",
-    "additionalContext": "## ClawXMemory Recall\n\n…"
-  }
-}
-```
-
-- `additionalContext` 会被注入模型上下文（真实 CLI + 本地 mock 模型实测：记忆内容出现在模型请求体里）；
-- `{"decision":"block","reason":"…"}` 或 `exit 2` + stderr 会阻断当前操作（记忆 SDK 正常路径不要用）；
-- `Stop` hook 注意 `stop_hook_active`，避免自我递归阻塞；
-- hook 同步执行，默认超时 60s；重活建议拆到 `PreCompact`/后台，或输出 `{"async":true}`。
-
----
-
-## 6. 无头运行 WorkBuddy CLI（真实链路）
-
-### 6.1 前提
+默认索引间隔 30 分钟，或待处理 L0 达到 20 条触发；Dream 默认 60 分钟且要求项目记忆发生变化。
+检查发生在宿主事件到达时，没有常驻计时线程。立即生成记忆可调用 `memory_flush` 或执行：
 
 ```bash
-NODE=~/.workbuddy/binaries/node/versions/22.22.2-6/bin/node
-CLI=/Applications/WorkBuddy.app/Contents/Resources/app.asar.unpacked/cli/bin/codebuddy
-export CODEBUDDY_FORCE_LITE_WB_BUNDLE=1   # 必须；否则 -p 报 Cannot find module '../dist/codebuddy'
-export CODEBUDDY_CONFIG_DIR=$TDIR          # CLI home：settings.json / projects/ / sessions/
-export WORKBUDDY_CONFIG_DIR=$TDIR          # WorkBuddy 专有数据：models.json
+"$HOME/.local/bin/pd-memory-workbuddy" flush --reason manual
 ```
 
-### 6.2 默认模型会被登录拦截（且 rc=0！）
+## 验收与排查
 
 ```bash
-"$NODE" "$CLI" -p 'hello' --output-format json
-# stderr: Authentication required. Please use /login command to sign in to your account
-# exit code: 0  ← 不要用退出码判断成功
-```
+# 配置和本地状态
+"$HOME/.local/bin/pd-memory-workbuddy" doctor
+"$HOME/.local/bin/pd-memory-workbuddy" overview
 
-### 6.3 绕过登录：`models.json` + 本地 OpenAI 兼容 SSE 端点
+# 安装器回归测试（不联网，先准备 CLI）
+cargo build --locked -p pd-memory-cli
+python3 -m unittest discover -s scripts/workbuddy -p 'test_*.py' -v
 
-`$TDIR/models.json`：
-
-```json
-{
-  "models": [{
-    "id": "mock-model", "name": "Mock Model", "vendor": "mock",
-    "url": "http://127.0.0.1:<port>/v1", "apiKey": "sk-mock-test",
-    "maxOutputTokens": 2048, "maxInputTokens": 32000, "supportsToolCall": true
-  }],
-  "availableModels": ["mock-model"]
-}
-```
-
-端点要求：`POST /v1/chat/completions`，请求体 `stream:true`，响应必须是 SSE：
-
-```
-data: {"id":"chatcmpl-mock1","object":"chat.completion.chunk","created":0,"model":"mock-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-mock1","object":"chat.completion.chunk","created":0,"model":"mock-model","choices":[{"index":0,"delta":{"content":"MOCK_REPLY: …"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-mock1","object":"chat.completion.chunk","created":0,"model":"mock-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}
-
-data: [DONE]
-```
-
-### 6.4 一次真实的 WorkBuddy 会话（hooks + MCP）
-
-```bash
-"$NODE" "$CLI" -p '请记住：WorkBuddy 集成项目的代号是 ORION-7421' \
-  --model mock-model \
-  --mcp-config $TDIR/mcp.json --strict-mcp-config \
-  --settings $TDIR/settings.json \
-  --output-format json
-```
-
-- `-p` 实测触发顺序：`SessionStart` → `UserPromptSubmit` →（模型调用）→ `Stop`；
-- `--strict-mcp-config` 让 CLI 只使用 `--mcp-config` 指定的 MCP servers（GUI 也用它）；
-- `--output-format json` 输出可能是一个 result 对象，也可能是会话事件数组（本机实测为数组），断言时都要兼容；
-- 该命令在本地 mock 模型下无需登录、无外网。
-
-> GUI 的启动方式（`~/.workbuddy/logs/daemon.log`）：
-> `Electron <cli/bin/codebuddy> --serve --no-session-persistence --setting-sources=user --strict-mcp-config`。
-> 这解释了为什么 GUI 只认 user 级 hooks、只认 GUI 自己组装的 MCP。
-
----
-
-## 7. 一键验证
-
-```bash
-cd pd-memory
-
-# 构建 + 契约模拟器（默认；WorkBuddy CLI 存在时自动追加真实 CLI 路线）
+# WorkBuddy 契约模拟器 + 已安装的真实 CLI；模型请求使用本地 mock
 bash examples/workbuddy/run_e2e.sh
-
-# 只跑契约模拟器（CI 环境、无 WorkBuddy 安装）
+# 无 WorkBuddy 环境
 bash examples/workbuddy/run_e2e.sh --no-real
-
-# 只跑真实 WorkBuddy CLI（自动探测 app 内置 Node/CLI）
-bash examples/workbuddy/run_e2e.sh --only-real
-
-# 调试：回显每条命令的原始 stdout/stderr
-bash examples/workbuddy/run_e2e.sh --verbose
 ```
 
-产物：
+GUI 验收：在绑定工作目录新建任务，给出一条项目事实；一轮结束后检查 `memory_overview` 的 pending，
+调用 `memory_flush`，再从新会话召回该事实。MCP 工具可见、CLI 注入成功与 GUI 会话自动注入是不同的验证项。
 
-- `examples/workbuddy/EVIDENCE.log`：完整运行日志（tee）
-- `examples/workbuddy/EVIDENCE.md`：人工整理的证据摘要（最近一次真实运行）
-- `examples/workbuddy/.run/e2e-summary.json`：机器可读的 PASS/FAIL 明细
-- `examples/workbuddy/.run/sim/**`（路线 A）与 `.run/real/**`（路线 B）：数据根、transcript、真实 hook stdin/stdout、MCP 探针日志
+| 现象 | 检查 |
+|---|---|
+| GUI 看不到 MCP | 是否写入 `mcp.json`，是否重启，是否在自定义连接器点击「信任」 |
+| 能调用工具但不自动捕获 | 用户级 settings 是否保留三个 hooks；transcript 是否存在 |
+| 只有 pending | 还未达到调度条件，主动调用 memory_flush |
+| 模型失败但聊天继续 | hooks 为尽力执行；运行 --verify-model，核对服务地址、模型名和密钥 |
+| 不同项目混在一起 | 此安装固定单工作目录，不跟随 WorkBuddy 的空间自动切换 |
+| 回退被拒绝 | 安装后目标文件有新修改；对照备份合并，避免覆盖新设置 |
 
-### 7.1 校验清单（手工核对）
-
-- [ ] `.run/sim/data/workspaces/workbuddy-demo/memory/MEMORY.md` 存在且非空
-- [ ] `.run/sim/data/workspaces/workbuddy-demo/memory/{Project,Feedback}/**.md` 至少 1 个记忆文件
-- [ ] `.run/sim/data/queue/*.jsonl`（L0 队列）含会话内容 → hook 捕获成功
-- [ ] 路线 A 的 MCP：`memory_search` 结果含事实 token，工具数为 7
-- [ ] 路线 B：`.run/real/hooks/{SessionStart,UserPromptSubmit,Stop}.stdin.json` 是真实 CLI payload
-- [ ] 路线 B：`.run/real/hooks/Stop.stdin.json` 的 `last_assistant_message` 等于 mock 回复
-- [ ] 路线 B：`.run/real/mcp-probe.log` 含 `initialize` / `notifications/initialized` / `tools/list`
-- [ ] 路线 B：第二轮 `UserPromptSubmit` 注入的记忆上下文出现在 mock 模型请求体（harness 自动断言）
-- [ ] `dream` 后出现 `workspaces/workbuddy-demo/last_dream/`，`rollback` 后 `MEMORY.md` 仍在
-
----
-
-## 8. 为什么模拟器是可信的回退
-
-`simulate_workbuddy.py` 的路线 A 不是"随便造个 JSON"，它的 fixture 全部来自真实采样（`docs/upstream.md` §3.5 / §4.2）：
-
-- stdin payload 字段（`hook_event_name` / `session_id` / `transcript_path` / `cwd` / `prompt` / `last_assistant_message` …）逐字段对照真实 CLI 输出；
-- transcript JSONL 采用桌面端真实记录类型（`message` / `reasoning` / `function_call` / `function_call_result`，`content[].type=input_text|output_text`）；
-- MCP 客户端握手使用 WorkBuddy 实际发送的 `protocolVersion=2025-11-25` 和 `clientInfo`；
-- 路线 B 用**真实 CLI** 跑同一套断言，因此路线 A 是对真实契约的回归，而不是替代品。
-
-WorkBuddy 升级后需要重新采样 fixture（路线 B 会直接失败给出信号）。
-
----
-
-## 9. 限制与风险
-
-1. **版本强耦合**：格式来自 WorkBuddy 5.8.2 / CLI 2.161.0；升级后 `models.json`、hook 字段、`--settings`、bundle 名字都可能变。EVIDENCE 里记录了基线版本。
-2. **GUI 未做人工冒烟**：`~/.workbuddy/settings.json` hooks 是否在 GUI 会话触发是"按启动参数推断 + CLI 实测"，未重启 GUI 验证；MCP 在 GUI 里需要连接器/插件，`connectors/default/mcp.json` 手改是否生效也未验证。
-3. **`-p` 的退出码不可信**：模型鉴权失败时仍返回 0；必须断言 stdout/stderr/数据目录。
-4. **MCP 审批**：手写 `.mcp.json` 在非交互 `mcp list` 中可能显示 `Needs approval`；测试用 `--mcp-config --strict-mcp-config` 最稳，GUI 用连接器/插件。
-5. **hook 同步阻塞**：默认 60s 超时，超时被杀；记忆抽取要快或放到 `PreCompact`/异步。
-6. **Stop 递归**：必须检查 `stop_hook_active`，否则可能死循环。
-7. **transcript 敏感**：真实会话含路径、命令输出甚至 token；落盘/入模前由 SDK 脱敏（`redaction.enabled`）。
-8. **相对路径歧义**：hooks 子进程 cwd 不固定（`SessionStart` 无 cwd），配置里一律用绝对路径（安装脚本/harness 自动处理）。
-9. **mock 仅是测试**：`PD_MEMORY_PROVIDER=mock` 与本地 SSE mock 端点只用于离线确定性验证，不代表真实模型质量；生产用真实 provider + `api_key_env`。
-10. **不要修改 app 包**：`app.asar` / `app.asar.unpacked` 属于签名应用，集成只通过配置/插件/环境变量完成。
-
----
-
-## 10. 安全须知
-
-- **绝不提交**真实的 `~/.workbuddy/settings.json`、`.mcp.json`、`models.json`、API key、transcript。
-  本仓库所有示例均使用 `__PD_MEMORY_*__` 占位符或 mock 值。
-- `models.json` 的 `apiKey` 是明文；只把 mock 端点和假 key 用于测试。
-- 修改 `~/.workbuddy` 前**必须备份**：`install_workbuddy.sh` 默认 dry-run，`--apply` 自动写
-  `*.bak.<timestamp>`；`~/.workbuddy/settings.json` 被 WorkBuddy 自身列为受保护文件，改前关闭 GUI。
-- 不替用户登录、不读取/导出凭据；集成测试全部在 `mktemp -d` 或 `examples/workbuddy/.run/` 隔离目录完成。
-- `install_workbuddy.sh --revert` 只恢复自己的备份，不删除无关条目。
+当前验证范围及历史 payload、流量与上下文注入证据见
+[上游说明](upstream.md)和 [EVIDENCE.md](../examples/workbuddy/EVIDENCE.md)。
