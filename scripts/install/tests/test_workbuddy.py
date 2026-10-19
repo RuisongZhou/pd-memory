@@ -1,27 +1,26 @@
-"""Offline installation tests; run after cargo build -p pd-memory-cli."""
+"""Offline WorkBuddy installation tests; run after cargo build -p pd-memory-cli."""
 
-import contextlib
-import importlib.util
-import io
 import json
 import os
 import pty
 import select
 import shlex
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from unittest import mock
 
-SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).with_name("install.py"))
-installer = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(installer)
-BINARY = Path(os.environ.get("PD_MEMORY_TEST_BINARY", installer.ROOT / "target/debug/pd-memory"))
-ENTRY = installer.ROOT / "scripts/workbuddy/install.sh"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import common  # noqa: E402
+from hosts import workbuddy as installer  # noqa: E402
+
+BINARY = Path(os.environ.get("PD_MEMORY_TEST_BINARY", common.ROOT / "target/debug/pd-memory"))
+# The legacy entry point is a shim for `scripts/install.sh --host workbuddy`.
+ENTRY = common.ROOT / "scripts/workbuddy/install.sh"
 
 
 class MergeTests(unittest.TestCase):
@@ -50,17 +49,17 @@ class MergeTests(unittest.TestCase):
 
     def test_bad_json_shapes_are_rejected(self):
         for value in [{"mcpServers": []}, {"disabledMcpServers": {}}]:
-            with self.assertRaises(installer.InstallError):
+            with self.assertRaises(common.InstallError):
                 installer.merge_mcp(value, Path("/wrapper"), cli=True)
         for value in [{"hooks": []}, {"hooks": {"Stop": {}}},
                       {"hooks": {"Stop": [{"hooks": "bad"}]}}]:
-            with self.assertRaises(installer.InstallError):
+            with self.assertRaises(common.InstallError):
                 installer.merge_hooks(value, Path("/wrapper"), Path("/binary"))
 
     def test_upgrade_removes_old_mock_hooks_including_optional_events(self):
         command = (
             "env PD_MEMORY_PROVIDER=mock PD_MEMORY_DATA_ROOT=/old/data "
-            + shlex.quote(str(installer.ROOT / "target/debug/pd-memory"))
+            + shlex.quote(str(common.ROOT / "target/debug/pd-memory"))
             + " --config /old/config.json hook"
         )
         old_hook = {"type": "command", "command": command}
@@ -75,76 +74,6 @@ class MergeTests(unittest.TestCase):
             hook = merged["hooks"][event][-1]["hooks"][0]
             self.assertTrue(hook["command"].endswith(" hook --workbuddy"))
             self.assertEqual(hook["timeout"], timeout)
-
-
-class TransactionTests(unittest.TestCase):
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.tmp.cleanup)
-        self.root = Path(self.tmp.name)
-        self.state = self.root / "backups"
-        self.state.mkdir()
-        self.first = self.root / "first"
-        self.second = self.root / "second"
-        self.first.write_bytes(b"before")
-        self.first.chmod(0o640)
-        self.changes = [(self.first, b"after", 0o600), (self.second, b"new", 0o755)]
-
-    def test_verifier_failure_and_interrupt_restore_originals(self):
-        for error in (installer.InstallError("failed"), KeyboardInterrupt()):
-            with self.assertRaises(type(error)), contextlib.redirect_stderr(io.StringIO()):
-                installer.apply_changes(self.changes, self.state, mock.Mock(side_effect=error))
-            self.assertEqual(installer.snapshot(self.first), (b"before", 0o640))
-            self.assertFalse(self.second.exists())
-
-    def test_partial_write_failure_restores_previous_files(self):
-        real_write = installer.atomic_write
-        def write(path, data, mode):
-            if path == self.second:
-                raise OSError("injected write failure")
-            real_write(path, data, mode)
-        with mock.patch.object(installer, "atomic_write", side_effect=write):
-            with self.assertRaises(OSError), contextlib.redirect_stderr(io.StringIO()):
-                installer.apply_changes(self.changes, self.state, lambda: None)
-        self.assertEqual(installer.snapshot(self.first), (b"before", 0o640))
-        self.assertFalse(self.second.exists())
-
-    def test_backup_pointer_failure_restores_previous_files(self):
-        real_write = installer.atomic_write
-        def write(path, data, mode):
-            if path == self.state / "latest":
-                raise OSError("injected metadata failure")
-            real_write(path, data, mode)
-        with mock.patch.object(installer, "atomic_write", side_effect=write):
-            with self.assertRaises(OSError), contextlib.redirect_stderr(io.StringIO()):
-                installer.apply_changes(self.changes, self.state, lambda: None)
-        self.assertEqual(installer.snapshot(self.first), (b"before", 0o640))
-        self.assertFalse(self.second.exists())
-
-    def test_plan_conflict_detected_before_writing(self):
-        expected = {p: installer.snapshot(p) for p, _, _ in self.changes}
-        self.first.write_bytes(b"edited elsewhere")
-        with self.assertRaises(installer.InstallError):
-            installer.apply_changes(self.changes, self.state, lambda: None, expected)
-        self.assertEqual(self.first.read_bytes(), b"edited elsewhere")
-        self.assertFalse(self.second.exists())
-        self.assertEqual(list(self.state.iterdir()), [])
-
-    def test_corrupt_backup_prevents_any_rollback(self):
-        with contextlib.redirect_stdout(io.StringIO()):
-            backup = installer.apply_changes(self.changes, self.state, lambda: None)
-        manifest = installer.read_object(backup / "manifest.json")
-        (backup / manifest["files"][0]["backup"]).write_bytes(b"corrupt")
-        with self.assertRaises(installer.InstallError):
-            installer.restore(backup, manifest)
-        self.assertEqual(self.first.read_bytes(), b"after")
-        self.assertEqual(self.second.read_bytes(), b"new")
-
-    def test_concurrent_installer_rejected(self):
-        with installer.installation_lock(self.state):
-            with self.assertRaises(installer.InstallError):
-                with installer.installation_lock(self.state):
-                    self.fail("lock unexpectedly acquired")
 
 
 class InstallationTests(unittest.TestCase):
@@ -225,7 +154,7 @@ class InstallationTests(unittest.TestCase):
             self.assertEqual(process.wait(timeout=5), 0, output.decode(errors="replace"))
             self.assertEqual(prompts, [])
             self.assertNotIn(b"test-hidden-prompt-key", output)
-            self.assertEqual(installer.credential_from_file(self.private / "model.env"),
+            self.assertEqual(common.credential_from_file(self.private / "model.env"),
                              "test-hidden-prompt-key")
         finally:
             os.close(master)
@@ -239,14 +168,14 @@ class InstallationTests(unittest.TestCase):
         manifest_count = len(list(self.state.glob("*/manifest.json")))
         self.run_installer("--apply", "--mock")
         self.assertEqual(len(list(self.state.glob("*/manifest.json"))), manifest_count)
-        settings = installer.read_object(self.wb / "settings.json")
+        settings = common.read_object(self.wb / "settings.json")
         self.assertTrue(settings["custom"])
         self.assertEqual(settings["hooks"]["Stop"][0]["hooks"][0]["command"], "echo keep")
         self.assertEqual(len(settings["hooks"]["Stop"]), 2)
-        gui = installer.read_object(self.wb / "mcp.json")
+        gui = common.read_object(self.wb / "mcp.json")
         self.assertEqual(gui["mcpServers"]["other"]["command"], "keep")
         self.assertEqual(gui["mcpServers"]["pd-memory"]["command"], str(self.wrapper))
-        cli = installer.read_object(self.wb / ".mcp.json")
+        cli = common.read_object(self.wb / ".mcp.json")
         self.assertEqual(cli["disabledMcpServers"], ["cli-other"])
         self.assertFalse((self.wb / "connectors").exists())
         self.assertFalse((self.home / ".local/share/pd-memory").exists())
@@ -259,7 +188,7 @@ class InstallationTests(unittest.TestCase):
         self.assertNotIn(secret, result.stdout + result.stderr)
         self.assertNotIn(secret, self.wrapper.read_text())
         self.assertNotIn(secret, (self.private / "config.json").read_text())
-        self.assertEqual(installer.credential_from_file(self.private / "model.env"), secret)
+        self.assertEqual(common.credential_from_file(self.private / "model.env"), secret)
         self.assertEqual((self.private / "model.env").stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.private.stat().st_mode & 0o777, 0o700)
         result = subprocess.run([str(self.wrapper), "doctor"], capture_output=True, text=True,
@@ -270,16 +199,16 @@ class InstallationTests(unittest.TestCase):
         self.assertIn("model: qwen-plus", result.stdout)
         self.assertNotIn("workspace id: wrong", result.stdout)
         self.run_installer("--apply")  # Reuse stored credentials and model.
-        self.assertEqual(installer.credential_from_file(self.private / "model.env"), secret)
+        self.assertEqual(common.credential_from_file(self.private / "model.env"), secret)
 
     def test_key_file_and_anthropic_configuration(self):
         key_file = Path(self.tmp.name) / "key"
         key_file.write_text("test-file-key\n")
         self.run_installer("--apply", "--api-type", "anthropic", "--model", "test-model",
                            "--base-url", "https://api.example.invalid/v1", "--key-file", str(key_file))
-        config = installer.read_object(self.private / "config.json")
+        config = common.read_object(self.private / "config.json")
         self.assertEqual(config["model"]["api_type"], "anthropic")
-        self.assertEqual(installer.credential_from_file(self.private / "model.env"), "test-file-key")
+        self.assertEqual(common.credential_from_file(self.private / "model.env"), "test-file-key")
 
     def test_existing_relative_paths_keep_cli_resolution(self):
         (self.private / "project").mkdir(parents=True)
@@ -287,20 +216,20 @@ class InstallationTests(unittest.TestCase):
             "data_root": "memory-data", "workspace_root": "project",
         }))
         self.run_installer("--apply", "--mock")
-        config = installer.read_object(self.private / "config.json")
+        config = common.read_object(self.private / "config.json")
         self.assertEqual(config["data_root"], str(self.private / "memory-data"))
         self.assertEqual(config["workspace_root"], str(self.private / "project"))
 
     def test_rollback_restores_bytes_modes_and_keeps_memory(self):
         self.seed_configs()
-        originals = {p: installer.snapshot(p) for p in self.wb.glob("*.json")}
+        originals = {p: common.snapshot(p) for p in self.wb.glob("*.json")}
         self.run_installer("--apply", "--mock")
         data = self.home / ".local/share/pd-memory"
         data.mkdir(parents=True)
         (data / "keep.md").write_text("user memory")
         self.run_installer("--rollback")
         for path, original in originals.items():
-            self.assertEqual(installer.snapshot(path), original)
+            self.assertEqual(common.snapshot(path), original)
         self.assertFalse(self.wrapper.exists())
         self.assertFalse((self.private / "config.json").exists())
         self.assertEqual((data / "keep.md").read_text(), "user memory")
@@ -323,7 +252,7 @@ class InstallationTests(unittest.TestCase):
 
     def test_rollback_without_installation_has_clear_error(self):
         result = self.run_installer("--rollback", ok=False)
-        self.assertIn("No installation backup found", result.stderr)
+        self.assertIn("No WorkBuddy installation backup found", result.stderr)
         self.assertFalse(self.state.exists())
 
     def test_invalid_config_refused_without_overwrite(self):
@@ -346,7 +275,7 @@ class InstallationTests(unittest.TestCase):
         self.assertFalse((self.private / "config.json").exists())
         manifests = list(self.state.glob("*/manifest.json"))
         self.assertEqual(len(manifests), 1)
-        self.assertEqual(installer.read_object(manifests[0])["status"], "rolled-back")
+        self.assertEqual(common.read_object(manifests[0])["status"], "rolled-back")
 
     def test_failed_cloud_check_does_not_leak_http_body_or_leave_install(self):
         secret = "test-secret-that-must-not-leak"

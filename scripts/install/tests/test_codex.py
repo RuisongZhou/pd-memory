@@ -5,24 +5,25 @@ trust) skip when it is not on PATH. They only use a temporary CODEX_HOME.
 """
 
 import contextlib
-import importlib.util
 import io
 import json
 import os
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-SPEC = importlib.util.spec_from_file_location("codex_installer", Path(__file__).with_name("install.py"))
-installer = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(installer)
-wb = installer.wb
-BINARY = Path(os.environ.get("PD_MEMORY_TEST_BINARY", installer.ROOT / "target/debug/pd-memory"))
-ENTRY = installer.ROOT / "scripts/codex/install.sh"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import common  # noqa: E402
+from hosts import codex as installer  # noqa: E402
+
+BINARY = Path(os.environ.get("PD_MEMORY_TEST_BINARY", common.ROOT / "target/debug/pd-memory"))
+# The legacy entry point is a shim for `scripts/install.sh --host codex`.
+ENTRY = common.ROOT / "scripts/codex/install.sh"
 WRAPPER = Path("/home/me/.local/bin/pd-memory-codex")
 CODEX = shutil.which("codex")
 
@@ -89,7 +90,7 @@ class TomlMergeTests(unittest.TestCase):
             'mcp_servers = "not a table"\n',
             "not = [valid toml\n",
         ]:
-            with self.assertRaises(installer.InstallError, msg=text):
+            with self.assertRaises(common.InstallError, msg=text):
                 installer.merge_config_toml(text, WRAPPER)
 
     def test_paths_needing_escapes_round_trip(self):
@@ -139,7 +140,7 @@ class HookMergeTests(unittest.TestCase):
     def test_bad_shapes_are_rejected(self):
         for value in [{"hooks": []}, {"hooks": {"Stop": {}}}, {"hooks": {"Stop": [{"hooks": "x"}]}},
                       {"hooks": {"Stop": [{"hooks": ["x"]}]}}]:
-            with self.assertRaises(installer.InstallError):
+            with self.assertRaises(common.InstallError):
                 installer.merge_hooks(value, WRAPPER, Path("/bin/pd-memory"))
 
 
@@ -204,10 +205,10 @@ class InstallationTests(unittest.TestCase):
         self.assertIn("--workspace", result.stderr)
         self.assertFalse(self.wrapper.exists())
         self.run_installer("--apply", "--mock")
-        config = wb.read_object(self.private / "codex.json")
+        config = common.read_object(self.private / "codex.json")
         self.assertEqual(config["workspace_root"], str(self.project))
         self.assertEqual(config["model"]["model"], "shared-model")
-        self.assertEqual(wb.read_object(self.private / "config.json")["workspace_root"], str(self.home))
+        self.assertEqual(common.read_object(self.private / "config.json")["workspace_root"], str(self.home))
 
     def test_mock_install_preserves_configs_notify_and_is_idempotent(self):
         self.seed()
@@ -216,7 +217,7 @@ class InstallationTests(unittest.TestCase):
         self.assertTrue(text.startswith(CONFIG))
         self.assertEqual(toml(text)["notify"], toml(CONFIG)["notify"])
         self.assertEqual((self.codex / "config.toml").stat().st_mode & 0o777, 0o640)
-        hooks = wb.read_object(self.codex / "hooks.json")["hooks"]
+        hooks = common.read_object(self.codex / "hooks.json")["hooks"]
         self.assertEqual(hooks["Stop"][0]["hooks"][0]["command"], "echo keep")
         self.assertEqual(sorted(hooks), sorted(installer.EVENTS))
         manifests = len(list(self.state.glob("*/manifest.json")))
@@ -234,11 +235,11 @@ class InstallationTests(unittest.TestCase):
 
     def test_rollback_restores_bytes_and_conflict_points_to_uninstall(self):
         self.seed()
-        originals = {p: wb.snapshot(p) for p in self.codex.iterdir()}
+        originals = {p: common.snapshot(p) for p in self.codex.iterdir()}
         self.run_installer("--apply", "--mock")
         self.run_installer("--rollback", workspace=False)
         for path, original in originals.items():
-            self.assertEqual(wb.snapshot(path), original)
+            self.assertEqual(common.snapshot(path), original)
         self.assertFalse(self.wrapper.exists())
         self.run_installer("--apply", "--mock")
         with (self.codex / "config.toml").open("a") as stream:  # Codex records hook trust here.
@@ -257,7 +258,7 @@ class InstallationTests(unittest.TestCase):
         self.assertNotIn("pd-memory", text)
         self.assertTrue(text.startswith(CONFIG))
         self.assertEqual(toml(text)["hooks"]["state"]["x"]["trusted_hash"], "sha256:1")
-        self.assertEqual(wb.read_object(self.codex / "hooks.json"),
+        self.assertEqual(common.read_object(self.codex / "hooks.json"),
                          {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo keep"}]}]}})
         self.assertTrue(self.wrapper.exists(), "uninstall keeps binary, wrapper and memory")
 
@@ -280,21 +281,21 @@ class InstallationTests(unittest.TestCase):
 
     def test_failed_check_rolls_back(self):
         self.seed()
-        before = {p: wb.snapshot(p) for p in self.codex.iterdir()}
+        before = {p: common.snapshot(p) for p in self.codex.iterdir()}
         fake = Path(self.tmp.name) / "fake-binary"
         fake.write_text('#!/bin/sh\ncase "$1" in --version) echo "pd-memory test";;\n'
                         'hook) echo "--codex";;\n*) exit 1;;\nesac\n')
         fake.chmod(0o755)
         self.run_installer("--apply", "--mock", "--binary", str(fake), ok=False)
-        self.assertEqual({p: wb.snapshot(p) for p in self.codex.iterdir()}, before)
+        self.assertEqual({p: common.snapshot(p) for p in self.codex.iterdir()}, before)
         self.assertFalse(self.wrapper.exists())
 
     def test_model_check_lifecycle_with_mock_provider(self):
         self.run_installer("--apply", "--mock")
-        real = wb.run_json
+        real = common.run_json
         def allow_mock(command, payload=None, timeout=30, allow_mock=False):
             return real(command, payload, timeout, True)
-        with mock.patch.object(wb, "run_json", side_effect=allow_mock), \
+        with mock.patch.object(common, "run_json", side_effect=allow_mock), \
                 contextlib.redirect_stdout(io.StringIO()):
             installer.verify_model(self.wrapper)
 
