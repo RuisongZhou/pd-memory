@@ -19,5 +19,5 @@ GUI 自定义 MCP 使用 `~/.workbuddy/mcp.json`，首次信任并重启后显�
 Qwen 真实模型的独立捕获、提取、搜索和 hook 上下文输出验证通过；
 GUI 会话中的自动捕获与上下文注入未做同等端到端验证。
 
-生产安装流程、备份回退与可复现命令见 [WorkBuddy 安装指南](workbuddy.md)。
+生产安装流程、备份回退与可复现命令见 [WorkBuddy 安装指南](hosts/workbuddy.md)。
 安装器回归测试使用隔离 home、合成密钥、本地二进制和本地 HTTP fixture，不读取真实凭据。

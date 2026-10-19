@@ -21,6 +21,6 @@ prompt). Stdout is one JSON object with continue=true and optional
 hookSpecificOutput.additionalContext. Both MCP and hooks use the same private
 model configuration and pinned workspace.
 
-See [installation and protocol guide](../../../docs/workbuddy.md) and
+See [installation and protocol guide](../../../docs/hosts/workbuddy.md) and
 [verification evidence](../EVIDENCE.md). A CLI hook invocation, successful hook
 output, and actual GUI session injection are separate verification claims.

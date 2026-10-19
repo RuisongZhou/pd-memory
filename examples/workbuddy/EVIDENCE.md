@@ -56,7 +56,7 @@ GUI 未发出 SessionEnd 时，由新 session 首次召回兜底；主动结束�
 > Clippy 本机未安装，未执行。
 >
 > - 新生产安装入口及回退：[`../../scripts/workbuddy/install.sh`](../../scripts/workbuddy/install.sh)，
->   流程见 [安装指南](../../docs/workbuddy.md)。密钥、真实配置和本机 transcript 不随证据提交。
+>   流程见 [安装指南](../../docs/hosts/workbuddy.md)。密钥、真实配置和本机 transcript 不随证据提交。
 >
 ## WorkBuddy 5.8.3 GUI 补验
 

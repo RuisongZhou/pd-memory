@@ -2,7 +2,8 @@
 
 pd-memory 通过 stdio MCP 为 Codex 提供七个工具，通过用户级 hooks 捕获对话并注入召回上下文。
 接入方式与 [WorkBuddy](workbuddy.md) 相同：一个 wrapper、一份私有模型配置、一个数据目录，
-不需要常驻服务。宿主差异只在 `pd-memory hook --codex` 和安装器中处理，记忆引擎行为不变。
+不需要常驻服务。宿主差异只在 `pd-memory hook --codex`（即 `hook --host codex`）和安装器中处理，记忆引擎行为不变。
+各宿主能力对照见 [接入宿主总览](README.md)。
 
 ## 安装
 
@@ -10,9 +11,10 @@ pd-memory 通过 stdio MCP 为 Codex 提供七个工具，通过用户级 hooks 
 （安装器用标准库 `tomllib` 校验 `config.toml`）、Rust stable / Cargo。
 
 ```bash
-bash scripts/codex/install.sh --apply --verify-model --workspace /absolute/path/to/project
+bash scripts/install.sh --host codex --apply --verify-model --workspace /absolute/path/to/project
 ```
 
+旧入口 `bash scripts/codex/install.sh` 仍可用，等价于 `scripts/install.sh --host codex`。
 不传 `--apply` 时只预览。首次运行询问模型名、API 服务前缀和密钥（隐藏输入），选项与 WorkBuddy
 安装器相同：`--api-type`、`--model`、`--base-url`、`--api-key-env`、`--key-file`、`--non-interactive`、
 `--mock`、`--binary`、`--data-root`、`--home`；另有 `--codex-home`（默认 `<home>/.codex`，
@@ -101,8 +103,8 @@ tool_timeout_sec = 300
 ## 回退与卸载
 
 ```bash
-bash scripts/codex/install.sh --rollback     # 按字节恢复安装前的文件
-bash scripts/codex/install.sh --uninstall    # 只移除 pd-memory 的 MCP 表和 hooks
+bash scripts/install.sh --host codex --rollback     # 按字节恢复安装前的文件
+bash scripts/install.sh --host codex --uninstall    # 只移除 pd-memory 的 MCP 表和 hooks
 ```
 
 备份位于 `~/.local/state/pd-memory/installations/codex/<id>`，与 WorkBuddy 的备份分开，但两个安装器
@@ -124,7 +126,7 @@ bash scripts/codex/install.sh --uninstall    # 只移除 pd-memory 的 MCP 表�
 
 ```bash
 cargo build --locked -p pd-memory-cli
-python3 -m unittest discover -s scripts/codex -p 'test_*.py' -v
+python3 -m unittest discover -s scripts/install/tests -p 'test_*.py' -v
 cargo test --locked -p pd-memory-hooks -p pd-memory-cli
 ```
 

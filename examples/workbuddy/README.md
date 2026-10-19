@@ -1,6 +1,6 @@
 # WorkBuddy integration
 
-Production installation and design: [installation guide](../../docs/workbuddy.md).
+Production installation and design: [installation guide](../../docs/hosts/workbuddy.md).
 
 ```bash
 bash scripts/workbuddy/install.sh --apply --verify-model
@@ -14,7 +14,7 @@ or --key-file. Only explicit --mock selects the offline demo.
 
 | File | Purpose |
 |---|---|
-| ../../scripts/workbuddy/install.py | Production installer, backup/rollback and validation |
+| ../../scripts/install/ | Production installer (`common.py` + `hosts/workbuddy.py`), backup/rollback and validation |
 | install_workbuddy.sh | Alternate entry point forwarding to the same installer |
 | pd-memory.config.json | Offline demo SDK config, separate .run/data |
 | workbuddy.mcp.json | Mock GUI MCP fragment; custom services use ~/.workbuddy/mcp.json |
@@ -27,7 +27,7 @@ or --key-file. Only explicit --mock selects the offline demo.
 ```bash
 # Installer tests
 cargo build --locked -p pd-memory-cli
-python3 -m unittest discover -s scripts/workbuddy -p 'test_*.py' -v
+python3 -m unittest discover -s scripts/install/tests -p 'test_*.py' -v
 
 # Host contract tests
 bash examples/workbuddy/run_e2e.sh
