@@ -326,8 +326,24 @@ def default_workspace(args, paths):
     return None
 
 
+def refuse_toml_hooks(text):
+    """Codex reads hooks from hooks.json or from [hooks] in config.toml, not both
+    in one layer. Only [hooks.state] (trust records Codex writes) may coexist."""
+    hooks = parse_toml(text, "config.toml").get("hooks", {})
+    defined = sorted(hooks) if isinstance(hooks, dict) else ["hooks"]
+    defined = [key for key in defined if key != "state"]
+    if defined:
+        raise InstallError(
+            "config.toml already defines Codex hooks under [hooks] ("
+            + ", ".join(defined) + "); pd-memory installs hooks.json and Codex does not "
+            "allow both in one layer. Move those hooks into hooks.json or remove them, then rerun"
+        )
+
+
 def integration_changes(args, paths):
-    config_text = merge_config_toml(common.read_text(paths.config_toml), paths.wrapper)
+    text = common.read_text(paths.config_toml)
+    refuse_toml_hooks(text)
+    config_text = merge_config_toml(text, paths.wrapper)
     hooks_data = common.encode(merge_hooks(common.read_object(paths.hooks_json), paths.wrapper, paths.binary))
     return [
         (paths.config_toml, config_text.encode(), common.mode_of(paths.config_toml)),

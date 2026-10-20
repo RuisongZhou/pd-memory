@@ -93,6 +93,20 @@ class TomlMergeTests(unittest.TestCase):
             with self.assertRaises(common.InstallError, msg=text):
                 installer.merge_config_toml(text, WRAPPER)
 
+    def test_event_hooks_in_config_toml_are_refused(self):
+        for text in [
+            CONFIG + '\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "echo"\n',
+            CONFIG + '\n[hooks]\nSessionStart = []\n',
+            'hooks = "not a table"\n',
+        ]:
+            with self.assertRaises(common.InstallError, msg=text) as raised:
+                installer.refuse_toml_hooks(text)
+            self.assertIn("hooks.json", str(raised.exception))
+        # Trust records written by Codex are not hook definitions.
+        installer.refuse_toml_hooks(CONFIG + '\n[hooks.state."x:stop:0:0"]\ntrusted_hash = "sha256:1"\n')
+        installer.refuse_toml_hooks(CONFIG)
+        installer.refuse_toml_hooks("")
+
     def test_paths_needing_escapes_round_trip(self):
         wrapper = Path('/home/me "quoted" \\ dir/ünïcode/pd-memory-codex')
         merged = installer.merge_config_toml(CONFIG, wrapper)
@@ -271,6 +285,18 @@ class InstallationTests(unittest.TestCase):
             self.assertEqual(path.read_text(), bad)
             self.assertFalse(self.wrapper.exists())
             path.unlink()
+
+    def test_config_toml_hooks_refused_without_writes(self):
+        self.seed()
+        path = self.codex / "config.toml"
+        text = CONFIG + '\n[[hooks.Stop]]\n[[hooks.Stop.hooks]]\ntype = "command"\ncommand = "echo"\n'
+        path.write_text(text)
+        before = (self.codex / "hooks.json").read_bytes()
+        result = self.run_installer("--apply", "--mock", ok=False)
+        self.assertIn("already defines Codex hooks under [hooks] (Stop)", result.stderr)
+        self.assertEqual(path.read_text(), text)
+        self.assertEqual((self.codex / "hooks.json").read_bytes(), before)
+        self.assertFalse(self.wrapper.exists())
 
     def test_symlinked_config_is_not_replaced(self):
         target = Path(self.tmp.name) / "outside.toml"

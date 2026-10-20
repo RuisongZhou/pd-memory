@@ -49,6 +49,9 @@ hook 命令、超时或位置任何改动都需要重新信任。安装器重复
 内容不变即不改动文件，因此已给出的信任保持有效；更换安装路径或升级改变命令时需要重新信任。
 信任前 MCP 工具可用，但不会自动捕获和注入。
 
+如果 `config.toml` 已在 `[hooks]` 下定义了事件 hooks（`[hooks.state]` 之外的任何键），安装器直接报错、不写任何文件：
+Codex 不允许同一层同时使用 `config.toml` 的 hooks 和 `hooks.json`，需先把它们移到 `hooks.json` 或删除。
+
 安装器不写 `[hooks.state]`，也不会添加、修改或删除 `notify`：合并后重新解析 `config.toml`，
 只有 `mcp_servers.pd-memory` 之外的内容完全一致才写入，注释和顺序按原字节保留。
 
