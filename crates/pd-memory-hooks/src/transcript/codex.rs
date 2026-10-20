@@ -87,8 +87,35 @@ fn codex_user_text(text: &str) -> Option<&str> {
     Some(text)
 }
 
+/// Tags Codex wraps around context it injects as a user message. Seen in
+/// codex-rs 0.154 and in real CLI/App rollouts. Anything else is user text,
+/// even when it is one tag block (a pasted `<error-log>...</error-log>`).
+const CODEX_CONTEXT_TAGS: &[&str] = &[
+    "environment_context",
+    "user_instructions",
+    "recommended_plugins",
+    "skill",
+    "image",
+    "INSTRUCTIONS",
+    "subagent_notification",
+    "turn_aborted",
+    "send_user_message_question_reply",
+    "in-app-browser-context",
+];
+
+/// Prefixes of numbered or per-app context tags (`<external_codex_apps_open_page>`).
+const CODEX_CONTEXT_TAG_PREFIXES: &[&str] = &["external_codex_apps_"];
+
+fn is_codex_context_tag(name: &str) -> bool {
+    CODEX_CONTEXT_TAGS.contains(&name)
+        || CODEX_CONTEXT_TAG_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+}
+
 /// `<environment_context>...</environment_context>`, `<skill>...</skill>`, a lone
-/// `<image ...>` / `</image>` marker, and similar host-generated tag blocks.
+/// `<image ...>` / `</image>` marker, and the other blocks in
+/// [`CODEX_CONTEXT_TAGS`].
 fn is_codex_context_envelope(text: &str) -> bool {
     let Some(rest) = text.strip_prefix('<') else {
         return false;
@@ -99,8 +126,7 @@ fn is_codex_context_envelope(text: &str) -> bool {
         .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':')))
         .unwrap_or(rest.len());
     let name = &rest[..name_len];
-    let host_tag = name.contains(['_', '-']) || matches!(name, "skill" | "image" | "INSTRUCTIONS");
-    if name.is_empty() || !host_tag {
+    if !is_codex_context_tag(name) {
         return false;
     }
     let after = &rest[name_len..];
@@ -276,6 +302,30 @@ mod tests {
     }
 
     #[test]
+    fn codex_keeps_a_user_pasted_tag_block() {
+        let pasted = "<error-log>\nthread 'main' panicked at src/boreal.rs:42\n</error-log>";
+        let lines = vec![
+            codex_message(
+                "user",
+                None,
+                &[(
+                    "input_text",
+                    "<environment_context>\n</environment_context>",
+                )],
+            ),
+            codex_message("user", None, &[("input_text", pasted)]),
+            codex_message(
+                "assistant",
+                Some("final_answer"),
+                &[("output_text", "Fixed.")],
+            ),
+        ];
+        let messages = parse_lines(&lines);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].content, pasted);
+    }
+
+    #[test]
     fn codex_attachment_preambles_keep_only_the_request() {
         let lines = vec![codex_message(
             "user",
@@ -302,6 +352,10 @@ mod tests {
             "<b>bold</b> is fine",
             "<div>user html</div>",
             "<not closed",
+            // A user who pastes one tag block keeps it.
+            "<error-log>\npanic at main.rs:3\n</error-log>",
+            "<stack_trace>\nframe 0\n</stack_trace>",
+            "<my-notes>Boreal ships Friday</my-notes>",
         ] {
             assert_eq!(codex_user_text(text), Some(text), "{text}");
         }
@@ -309,6 +363,10 @@ mod tests {
             "<environment_context>\n</environment_context>",
             "<skill>\n<name>x</name>\n</skill>",
             "<turn_aborted>\nThe user interrupted.\n</turn_aborted>",
+            "<user_instructions>\nbe terse\n</user_instructions>",
+            "<external_codex_apps_open_page>\n{}\n</external_codex_apps_open_page>",
+            "<in-app-browser-context source=\"ambient-ui-state\">\nstate\n</in-app-browser-context>",
+            "<subagent_notification>\ndone\n</subagent_notification>",
             "</image>",
             "# AGENTS.md instructions for /repo\n\nbody",
             "# Files mentioned by the user:\n\n## My request:\n  ",

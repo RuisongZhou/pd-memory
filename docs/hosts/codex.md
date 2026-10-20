@@ -97,9 +97,12 @@ tool_timeout_sec = 300
   `commentary`；没有 `phase` 的旧格式照常保留；
 - `event_msg`、`reasoning`、工具调用及输出、`turn_context`、`compacted` 等均忽略。
 
-整块用户标签的判定是：标签名含 `_` 或 `-`，或为 `skill` / `image` / `INSTRUCTIONS`，且整段文本被
-该标签包住。用户真的整段只发这种标签时也会被当作宿主上下文；`<send_user_message_question_reply>`
-（对 Codex 提问的表单回复）因此不进入记忆。
+整块用户标签按白名单判定：`environment_context`、`user_instructions`、`recommended_plugins`、`skill`、
+`image`、`INSTRUCTIONS`、`subagent_notification`、`turn_aborted`、`send_user_message_question_reply`、
+`in-app-browser-context`，以及前缀 `external_codex_apps_`（来自 codex-rs 0.154 与本机真实 rollout）。
+整段文本被这些标签之一包住才视为宿主上下文；用户粘贴的其他整块标签（如 `<error-log>…</error-log>`）
+照常保留。`<send_user_message_question_reply>`（对 Codex 提问的表单回复）因此不进入记忆。
+Codex 新增注入标签时需要补充白名单（`crates/pd-memory-hooks/src/transcript/codex.rs`）。
 
 ## 回退与卸载
 
