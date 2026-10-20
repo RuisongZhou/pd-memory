@@ -1,0 +1,5 @@
+{
+  "end_budget_ms": 3000,
+  "has_transcript": true,
+  "inject_on": ["Start", "Recall"]
+}

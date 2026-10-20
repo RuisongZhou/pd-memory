@@ -1,0 +1,13 @@
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"session_meta","payload":{"id":"cx-1","cwd":"/work/boreal","originator":"codex_cli_rs"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>sandbox</permissions instructions>"}]}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /work/boreal\n\n<INSTRUCTIONS>\nbe terse\n</INSTRUCTIONS>"}]}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/work/boreal</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"turn_context","payload":{"cwd":"/work/boreal","model":"gpt-test"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Remember: the Boreal release codename is Nacre-731."}]}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"event_msg","payload":{"type":"user_message","message":"Remember: the Boreal release codename is Nacre-731."}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"thinking"}]}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Let me check the release notes."}],"phase":"commentary"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}","call_id":"c1"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"ok"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Noted: Boreal ships as Nacre-731."}],"phase":"final_answer"}}
+{"timestamp":"2026-10-19T09:15:23.000Z","type":"event_msg","payload":{"type":"agent_message","message":"Noted: Boreal ships as Nacre-731."}}

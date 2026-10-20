@@ -1,0 +1,7 @@
+{"id":"1","type":"session-meta","sessionId":"wb-1"}
+{"id":"2","type":"message","role":"user","content":[{"type":"input_text","text":"<system-reminder data-role=\"user-context\">Host instructions.</system-reminder>"}]}
+{"id":"3","type":"message","role":"user","content":[{"type":"input_text","text":"<system-reminder data-role=\"additional-data\">host memory</system-reminder>\n<user_query>Remember: the Boreal release codename is Nacre-731.</user_query>"}]}
+{"id":"4","type":"reasoning","content":[{"type":"text","text":"thinking"}]}
+{"id":"5","type":"function_call","name":"Bash","arguments":"{}"}
+{"id":"6","type":"function_call_result","name":"Bash","output":{"type":"text","text":"ok"}}
+{"id":"7","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Noted: Boreal ships as Nacre-731."}]}

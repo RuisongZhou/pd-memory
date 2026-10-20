@@ -11,8 +11,10 @@ WorkBuddy 5.8.3 已做本机验收。脚本使用 POSIX shell 和 Python 标准�
 在仓库根目录执行：
 
 ```bash
-bash scripts/workbuddy/install.sh --apply --verify-model
+bash scripts/install.sh --host workbuddy --apply --verify-model
 ```
+
+旧入口 `bash scripts/workbuddy/install.sh` 仍可用，等价于 `scripts/install.sh --host workbuddy`。
 
 首次运行依次询问模型名（默认 `qwen-plus`）、API 服务前缀和密钥。密钥使用隐藏输入。
 `openai-chat` 会在服务前缀后追加 `/chat/completions`；`anthropic` 使用 Messages API，
@@ -22,7 +24,7 @@ bash scripts/workbuddy/install.sh --apply --verify-model
 默认绑定已有的 `~/.workbuddy/workspace`。其他工作目录用：
 
 ```bash
-bash scripts/workbuddy/install.sh --apply --verify-model \
+bash scripts/install.sh --host workbuddy --apply --verify-model \
   --workspace /absolute/path/to/project
 ```
 
@@ -54,7 +56,7 @@ pd-memory 的记忆库。安装前应选定要绑定的目录；SDK 当前不包
 本机已有模型配置和密钥时，Agent 应在仓库根目录前台执行：
 
 ```bash
-bash scripts/workbuddy/install.sh --apply --verify-model --non-interactive
+bash scripts/install.sh --host workbuddy --apply --verify-model --non-interactive
 ```
 
 首次安装缺少配置时，`--non-interactive` 会明确报错退出。由用户在本地终端执行交互式安装，
@@ -70,17 +72,17 @@ Cargo 替换构建产物可能触发 WorkBuddy 的单次审批；后台执行可
 
 ```bash
 # 默认也是预览：不编译、不写文件、不读入新密钥、不发模型请求
-bash scripts/workbuddy/install.sh --dry-run
+bash scripts/install.sh --host workbuddy --dry-run
 
 # 再次运行：复用已有模型、密钥和工作目录，不重复添加 hooks
-bash scripts/workbuddy/install.sh --apply --verify-model
+bash scripts/install.sh --host workbuddy --apply --verify-model
 
 # 由密钥管理器预先导出 QWEN_API_KEY，适合无交互环境
-bash scripts/workbuddy/install.sh --apply --non-interactive --verify-model \
+bash scripts/install.sh --host workbuddy --apply --non-interactive --verify-model \
   --model qwen-plus --base-url "$QWEN_BASE_URL" --api-key-env QWEN_API_KEY
 
 # 或读取只包含 API key 的文件；不要把密钥直接写进命令参数
-bash scripts/workbuddy/install.sh --apply --non-interactive \
+bash scripts/install.sh --host workbuddy --apply --non-interactive \
   --model qwen-plus --base-url "$QWEN_BASE_URL" --key-file /private/path/api-key
 ```
 
@@ -125,9 +127,9 @@ wrapper 固定读取同一份配置和密钥，并清除可能导致分库或误
 GUI 使用自己的严格 MCP 配置，单独修改 CLI 的 `.mcp.json` 不代表 GUI 已接入。
 
 ```bash
-bash scripts/workbuddy/install.sh --rollback
+bash scripts/install.sh --host workbuddy --rollback
 # 或恢复某次指定安装；从安装输出取得实际目录
-bash scripts/workbuddy/install.sh --rollback /absolute/path/to/installations/<id>
+bash scripts/install.sh --host workbuddy --rollback /absolute/path/to/installations/<id>
 ```
 
 每次有改动的安装保存一个 manifest；重复执行且内容相同不产生新备份。
@@ -170,7 +172,8 @@ GUI/CLI 的 MCP 条目均指向 wrapper，配置不包含密钥：
 | Stop | 从 transcript 捕获对话，再检查到期维护 | 300 秒 |
 | SessionEnd | 补捕获最终 transcript，并主动 flush 积压 | 300 秒 |
 
-上述策略仅在 `hook --workbuddy` 模式生效，安装器会自动配置该参数。普通 `hook`、MCP、
+上述策略仅在 `hook --workbuddy`（即 `hook --host workbuddy`）模式生效，安装器会自动配置该参数。
+宿主差异和各宿主能力对照见 [接入宿主总览](README.md)。普通 `hook`、MCP、
 Android 和记忆引擎保持原行为。升级旧安装时重新执行安装脚本，会替换旧条目，不重复注册。
 
 同一工作目录的 WorkBuddy hooks 用进程间文件锁串行执行，锁在引擎打开前取得，
@@ -180,8 +183,8 @@ Android 和记忆引擎保持原行为。升级旧安装时重新执行安装脚
 不依赖 SessionStart 与 UserPromptSubmit 的先后顺序。
 
 成功检查后，同一 session 的后续提问不会重复强制 flush；SessionEnd 会清除该检查标记，
-恢复这个 session 时可以重新检查。标记与锁保存在对应工作目录数据下的 `control/workbuddy/`，
-不包含对话正文。检查、flush 或状态保存失败时写 stderr 并放行聊天；未完成的检查会在后续提问重试。
+恢复这个 session 时可以重新检查。标记保存在对应工作目录数据下的 `control/workbuddy/`，锁为同目录上一级的 `control/hooks.lock`
+（同一工作目录的所有宿主共用，WorkBuddy 与 Codex 的 hooks 互相串行），不包含对话正文。检查、flush 或状态保存失败时写 stderr 并放行聊天；未完成的检查会在后续提问重试。
 此策略只处理已经捕获的内容，不会提前读取仍在运行的其他会话尚未生成的回复。
 
 hook 输入使用 snake_case，输出遵循宿主协议：
@@ -215,7 +218,7 @@ GUI 将系统提醒和 `<user_query>` 放在同一文本块时，适配器仅提
 
 # 安装器回归测试（不联网，先准备 CLI）
 cargo build --locked -p pd-memory-cli
-python3 -m unittest discover -s scripts/workbuddy -p 'test_*.py' -v
+python3 -m unittest discover -s scripts/install/tests -p 'test_*.py' -v
 
 # WorkBuddy 契约模拟器 + 已安装的真实 CLI；模型请求使用本地 mock
 bash examples/workbuddy/run_e2e.sh
@@ -239,4 +242,4 @@ MCP 工具可见、CLI 注入成功与 GUI 会话自动注入是不同的验证�
 | 回退被拒绝 | 安装后目标文件有新修改；对照备份合并，避免覆盖新设置 |
 
 当前验证范围及历史 payload、流量与上下文注入证据见
-[上游说明](upstream.md)和 [EVIDENCE.md](../examples/workbuddy/EVIDENCE.md)。
+[上游说明](../upstream.md)和 [EVIDENCE.md](../../examples/workbuddy/EVIDENCE.md)。

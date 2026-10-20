@@ -1,0 +1,180 @@
+[
+  {
+    "name": "start injects overview (WorkBuddy omits cwd here)",
+    "pending": 0,
+    "input": {
+      "hook_event_name": "SessionStart",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "source": "startup"
+    },
+    "event": "Start",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart",
+        "additionalContext": "<pd-memory>\nLong-term memory: 2 file(s) — 1 project, 1 feedback, 0 user profile(s).\nUse memory_search when durable preferences, rules, or project facts are relevant.\n</pd-memory>"
+      }
+    },
+    "calls": [
+      "overview"
+    ]
+  },
+  {
+    "name": "first recall drains backlog, then recalls",
+    "pending": 2,
+    "recall": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>",
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>"
+      }
+    },
+    "calls": [
+      "overview",
+      "flush:workbuddy:first-recall",
+      "overview",
+      "retrieve:What is the Boreal codename?:2"
+    ]
+  },
+  {
+    "name": "later recall in the same session skips the barrier",
+    "pending": 1,
+    "recall": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>",
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "<pd-memory>Boreal release codename: Nacre-731.</pd-memory>"
+      }
+    },
+    "calls": [
+      "retrieve:What is the Boreal codename?:2"
+    ]
+  },
+  {
+    "name": "empty prompt neither flushes nor recalls",
+    "pending": 1,
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "prompt": "  "
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true
+    },
+    "calls": []
+  },
+  {
+    "name": "stop captures transcript and runs maintenance",
+    "input": {
+      "hook_event_name": "Stop",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "last_assistant_message": "Noted: Boreal ships as Nacre-731.",
+      "stop_hook_active": false
+    },
+    "event": "Capture",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "capture:2:wb-1:hook:Stop",
+      "maintenance:hook:Stop"
+    ]
+  },
+  {
+    "name": "pre-compact flushes",
+    "input": {
+      "hook_event_name": "PreCompact",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "trigger": "auto"
+    },
+    "event": "Compact",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "flush:hook:PreCompact"
+    ]
+  },
+  {
+    "name": "session end captures, maintains and drains the backlog",
+    "pending": 1,
+    "input": {
+      "hook_event_name": "SessionEnd",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "reason": "clear"
+    },
+    "event": "End",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "capture:2:wb-1:hook:SessionEnd",
+      "maintenance:hook:SessionEnd",
+      "overview",
+      "flush:workbuddy:session-end",
+      "overview"
+    ]
+  },
+  {
+    "name": "session end cleared the marker: next recall checks again",
+    "pending": 0,
+    "input": {
+      "hook_event_name": "UserPromptSubmit",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "prompt": "What is the Boreal codename?"
+    },
+    "event": "Recall",
+    "output": {
+      "continue": true
+    },
+    "calls": [
+      "overview",
+      "retrieve:What is the Boreal codename?:2"
+    ]
+  },
+  {
+    "name": "tool events are ignored",
+    "input": {
+      "hook_event_name": "PostToolUse",
+      "session_id": "wb-1",
+      "transcript_path": "$TRANSCRIPT",
+      "cwd": "/work/boreal",
+      "tool_name": "Bash"
+    },
+    "event": "Ignore",
+    "output": {
+      "continue": true
+    },
+    "calls": []
+  }
+]

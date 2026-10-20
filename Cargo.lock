@@ -886,7 +886,6 @@ dependencies = [
  "chrono",
  "clap",
  "env_logger",
- "fs2",
  "log",
  "pd-memory-core",
  "pd-memory-hooks",
@@ -894,7 +893,6 @@ dependencies = [
  "pd-memory-mcp",
  "serde",
  "serde_json",
- "sha1",
  "tempfile",
  "thiserror 2.0.21",
 ]
@@ -932,10 +930,12 @@ dependencies = [
 name = "pd-memory-hooks"
 version = "0.1.0"
 dependencies = [
+ "fs2",
  "log",
  "pd-memory-core",
  "serde",
  "serde_json",
+ "sha1",
  "tempfile",
  "thiserror 2.0.21",
 ]

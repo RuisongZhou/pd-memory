@@ -14,7 +14,7 @@ use pd_memory_core::error::{MemoryError, Result};
 use pd_memory_core::types::{
     DreamTrigger, MemoryExportBundle, MemoryListOptions, MemoryMessage, MemoryRecordType,
 };
-use pd_memory_hooks::HookOutput;
+use pd_memory_hooks::{HookOutput, HostAdapter};
 use serde_json::{json, Value};
 
 use crate::config_loader::{self, GlobalOptions};
@@ -81,57 +81,56 @@ pub fn serve_mcp(options: &GlobalOptions) -> Result<()> {
 ///
 /// This command is intentionally infallible from the host's point of view: any
 /// internal failure is logged to stderr and downgraded to `{"continue":true}`.
-pub fn hook(options: &GlobalOptions, workbuddy: bool) {
-    let output = hook_output_from_stdin(options, workbuddy);
-    print!("{}", pd_memory_hooks::render_output(&output));
+pub fn hook(options: &GlobalOptions, host: Option<&dyn HostAdapter>) {
+    println!("{}", hook_output_from_stdin(options, host));
     let _ = std::io::stdout().flush();
 }
 
-fn hook_output_from_stdin(options: &GlobalOptions, workbuddy: bool) -> HookOutput {
+/// Rendered stdout JSON (without newline) for one hook invocation.
+fn hook_output_from_stdin(options: &GlobalOptions, host: Option<&dyn HostAdapter>) -> String {
+    let fallback = || pd_memory_hooks::render_json(&HookOutput::continue_only());
     let mut raw = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut raw) {
         log::error!("could not read hook stdin ({error}); continuing");
-        return HookOutput::continue_only();
+        return fallback();
     }
     let input = pd_memory_hooks::parse_input(&raw);
     let mut config = match config_loader::resolve_config(options) {
         Ok(config) => config,
         Err(error) => {
             log::error!("hook config resolution failed ({error}); continuing");
-            return HookOutput::continue_only();
+            return fallback();
         }
     };
     config_loader::apply_hook_workspace(&mut config, &input);
     // Acquire the host lock before opening the engine, so each subprocess sees
     // state committed by the preceding capture / flush / recall.
-    let session = if workbuddy {
-        match crate::workbuddy::Session::lock(&config, &input) {
+    let session = match host {
+        Some(host) => match pd_memory_hooks::policy::Session::lock(host, &config, &input) {
             Ok(session) => Some(session),
             Err(error) => {
-                log::warn!("WorkBuddy hook lock failed ({error}); continuing");
-                return HookOutput::continue_only();
+                log::warn!("{} hook lock failed ({error}); continuing", host.label());
+                return fallback();
             }
-        }
-    } else {
-        None
+        },
+        None => None,
     };
     let event = input.event().to_string();
     let engine = match config_loader::build_engine_lenient(&config, &format!("hook:{event}")) {
         Ok(engine) => engine,
         Err(error) => {
             log::error!("hook engine could not be opened ({error}); continuing");
-            return HookOutput::continue_only();
+            return fallback();
         }
     };
-    let result = match session {
-        Some(session) => session.dispatch(&engine, &input),
-        None => pd_memory_hooks::dispatch(&engine, &input),
-    };
-    match result {
-        Ok(output) => output,
+    if let Some(session) = session {
+        return session.dispatch(&engine, &input);
+    }
+    match pd_memory_hooks::dispatch(&engine, &input) {
+        Ok(output) => pd_memory_hooks::render_json(&output),
         Err(error) => {
             log::error!("hook dispatch failed ({error}); continuing");
-            HookOutput::continue_only()
+            fallback()
         }
     }
 }

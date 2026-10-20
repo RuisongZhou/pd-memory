@@ -19,6 +19,7 @@ use pd_memory_core::types::{
     CaptureTurnResult, HeartbeatStats, MaintenanceResult, MemoryMessage, MemoryOverview,
 };
 
+use crate::hosts::CanonicalEvent;
 use crate::transcript::{self, DEFAULT_TRANSCRIPT_MESSAGES};
 use crate::{HookInput, HookOutput};
 
@@ -98,8 +99,12 @@ impl HookEngine for EngineHooks<'_> {
     }
 }
 
+/// Reads recent transcript messages: `(transcript_path, max_messages)`.
+pub type TranscriptReader<'a> = &'a dyn Fn(&str, usize) -> Result<Vec<MemoryMessage>>;
+
 /// Dispatch one hook input against an injectable [`HookEngine`].
 ///
+/// Uses Claude Code event names and the auto-detecting transcript reader.
 /// Individual event failures are logged and downgraded to `{"continue":true}`;
 /// the `Result` exists only so future versions can report fatal protocol errors.
 pub fn dispatch_with(
@@ -107,30 +112,51 @@ pub fn dispatch_with(
     max_context_chars: usize,
     input: &HookInput,
 ) -> Result<HookOutput> {
-    let event = input.hook_event_name.trim();
+    let event = crate::hosts::claude_code_event(input);
+    Ok(handle_with(
+        hooks,
+        max_context_chars,
+        input,
+        &event,
+        &transcript::parse_transcript,
+    ))
+}
+
+/// Run the generic behavior for one canonical event.
+///
+/// Context is labeled with the host's own event name (`hookEventName`), and
+/// capture sources / maintenance reasons use it too (`hook:<event>`).
+pub fn handle_with(
+    hooks: &dyn HookEngine,
+    max_context_chars: usize,
+    input: &HookInput,
+    event: &CanonicalEvent,
+    read: TranscriptReader<'_>,
+) -> HookOutput {
+    let name = input.event();
     match event {
-        "SessionStart" => Ok(session_start(hooks, max_context_chars)),
-        "UserPromptSubmit" => Ok(user_prompt_submit(hooks, max_context_chars, input)),
-        "Stop" | "SessionEnd" => Ok(capture_and_maintain(hooks, input, event)),
-        "PreCompact" => Ok(pre_compact(hooks)),
-        "PostToolUse" => {
-            // Tool results are noisy for memory extraction; capture from
-            // `Stop`/`SessionEnd` transcript parsing instead.
-            log::debug!("PostToolUse: no pd-memory behavior");
-            Ok(HookOutput::continue_only())
+        CanonicalEvent::Start => session_start(hooks, max_context_chars, name),
+        CanonicalEvent::Recall { prompt } => {
+            user_prompt_submit(hooks, max_context_chars, input, name, prompt, read)
         }
-        "" => {
-            log::debug!("hook input has no hook_event_name; no-op");
-            Ok(HookOutput::continue_only())
+        CanonicalEvent::Capture | CanonicalEvent::End => {
+            capture_and_maintain(hooks, input, name, read)
         }
-        other => {
-            log::debug!("hook event {other} has no pd-memory behavior; no-op");
-            Ok(HookOutput::continue_only())
+        CanonicalEvent::Compact => pre_compact(hooks, name),
+        CanonicalEvent::Ignore => {
+            match name {
+                // Tool results are noisy for memory extraction; capture from
+                // `Stop`/`SessionEnd` transcript parsing instead.
+                "PostToolUse" => log::debug!("PostToolUse: no pd-memory behavior"),
+                "" => log::debug!("hook input has no hook_event_name; no-op"),
+                other => log::debug!("hook event {other} has no pd-memory behavior; no-op"),
+            }
+            HookOutput::continue_only()
         }
     }
 }
 
-fn session_start(hooks: &dyn HookEngine, max_context_chars: usize) -> HookOutput {
+fn session_start(hooks: &dyn HookEngine, max_context_chars: usize, event: &str) -> HookOutput {
     match hooks.overview() {
         Ok(overview) => {
             let rendered = render_overview_context(&overview);
@@ -141,11 +167,11 @@ fn session_start(hooks: &dyn HookEngine, max_context_chars: usize) -> HookOutput
             if context.is_empty() {
                 HookOutput::continue_only()
             } else {
-                HookOutput::with_context("SessionStart", context)
+                HookOutput::with_context(event, context)
             }
         }
         Err(error) => {
-            log::warn!("SessionStart overview failed (ignored): {error}");
+            log::warn!("{event} overview failed (ignored): {error}");
             HookOutput::continue_only()
         }
     }
@@ -155,37 +181,75 @@ fn user_prompt_submit(
     hooks: &dyn HookEngine,
     max_context_chars: usize,
     input: &HookInput,
+    event: &str,
+    prompt: &str,
+    read: TranscriptReader<'_>,
 ) -> HookOutput {
-    let prompt = input.prompt.as_deref().map(str::trim).unwrap_or_default();
+    let prompt = prompt.trim();
     if prompt.is_empty() {
-        log::debug!("UserPromptSubmit without a prompt; skipping recall");
+        log::debug!("{event} without a prompt; skipping recall");
         return HookOutput::continue_only();
     }
-    let recent = transcript::parse_transcript(&input.transcript_path, RECENT_MESSAGES_FOR_RECALL)
-        .unwrap_or_default();
+    let recent = read(&input.transcript_path, RECENT_MESSAGES_FOR_RECALL).unwrap_or_default();
     match hooks.retrieve_context(prompt, recent) {
         Ok(Some(context)) => {
             let context = truncate_chars(&context, max_context_chars);
             if context.trim().is_empty() {
                 HookOutput::continue_only()
             } else {
-                HookOutput::with_context("UserPromptSubmit", context)
+                HookOutput::with_context(event, context)
             }
         }
         Ok(None) => HookOutput::continue_only(),
         Err(error) => {
-            log::warn!("UserPromptSubmit recall failed (ignored): {error}");
+            log::warn!("{event} recall failed (ignored): {error}");
             HookOutput::continue_only()
         }
     }
 }
 
-fn capture_and_maintain(hooks: &dyn HookEngine, input: &HookInput, event: &str) -> HookOutput {
+fn capture_and_maintain(
+    hooks: &dyn HookEngine,
+    input: &HookInput,
+    event: &str,
+    read: TranscriptReader<'_>,
+) -> HookOutput {
+    capture_transcript(hooks, input, event, read);
+    // Heartbeat / dream scheduling is best effort: a failure here must not fail
+    // the host's turn.
+    if let Err(error) = hooks.run_due_scheduled_maintenance(&format!("hook:{event}")) {
+        log::warn!("{event}: scheduled maintenance failed (ignored): {error}");
+    }
+    HookOutput::continue_only()
+}
+
+/// Capture the transcript (or inline final reply) without scheduled
+/// maintenance, for hosts that give an event too little time for model calls
+/// (Codex caps `SessionEnd` at 3 s).
+pub fn capture_only_with(hooks: &dyn HookEngine, input: &HookInput) -> HookOutput {
+    capture_only_reading(hooks, input, &transcript::parse_transcript)
+}
+
+/// [`capture_only_with`] with an explicit transcript reader.
+pub fn capture_only_reading(
+    hooks: &dyn HookEngine,
+    input: &HookInput,
+    read: TranscriptReader<'_>,
+) -> HookOutput {
+    capture_transcript(hooks, input, input.event(), read);
+    HookOutput::continue_only()
+}
+
+fn capture_transcript(
+    hooks: &dyn HookEngine,
+    input: &HookInput,
+    event: &str,
+    read: TranscriptReader<'_>,
+) -> bool {
     let mut captured = false;
     if !input.transcript_path.trim().is_empty() {
         let mut messages =
-            transcript::parse_transcript(&input.transcript_path, DEFAULT_TRANSCRIPT_MESSAGES)
-                .unwrap_or_default();
+            read(&input.transcript_path, DEFAULT_TRANSCRIPT_MESSAGES).unwrap_or_default();
         // WorkBuddy/CodeBuddy flush the final assistant transcript line *after*
         // the Stop hook fires, so the transcript seen by the hook may end with
         // a user turn. The host inlines the final reply as
@@ -213,12 +277,7 @@ fn capture_and_maintain(hooks: &dyn HookEngine, input: &HookInput, event: &str) 
     if !captured {
         log::debug!("{event}: no transcript messages available; nothing captured");
     }
-    // Heartbeat / dream scheduling is best effort: a failure here must not fail
-    // the host's turn.
-    if let Err(error) = hooks.run_due_scheduled_maintenance(&format!("hook:{event}")) {
-        log::warn!("{event}: scheduled maintenance failed (ignored): {error}");
-    }
-    HookOutput::continue_only()
+    captured
 }
 
 fn capture_messages(
@@ -249,9 +308,9 @@ fn capture_messages(
     }
 }
 
-fn pre_compact(hooks: &dyn HookEngine) -> HookOutput {
-    if let Err(error) = hooks.flush("hook:PreCompact") {
-        log::warn!("PreCompact flush failed (ignored): {error}");
+fn pre_compact(hooks: &dyn HookEngine, event: &str) -> HookOutput {
+    if let Err(error) = hooks.flush(&format!("hook:{event}")) {
+        log::warn!("{event} flush failed (ignored): {error}");
     }
     HookOutput::continue_only()
 }
@@ -687,6 +746,24 @@ mod tests {
         .unwrap();
         assert!(output.r#continue);
         assert!(output.hook_specific_output.is_none());
+    }
+
+    #[test]
+    fn capture_only_skips_maintenance() {
+        let hooks = FakeHooks::default();
+        let output = capture_only_with(
+            &hooks,
+            &input(
+                "SessionEnd",
+                serde_json::json!({"last_assistant_message": "final reply"}),
+            ),
+        );
+        assert!(output.r#continue);
+        assert!(output.hook_specific_output.is_none());
+        assert_eq!(
+            hooks.calls(),
+            vec!["capture:1:session-1:hook:SessionEnd".to_string()]
+        );
     }
 
     #[test]

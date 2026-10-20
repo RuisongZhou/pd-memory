@@ -12,20 +12,20 @@ MCP stdio、Agent 生命周期 hooks 和 Android C ABI / JNI 接口。当前功�
 
 也可以把下面这段话直接发给 WorkBuddy Agent，让它执行仓库现有脚本：
 
-> 请安装 https://github.com/RuisongZhou/pd-memory 。先读 README.md 和 docs/workbuddy.md，
+> 请安装 https://github.com/RuisongZhou/pd-memory 。先读 README.md 和 docs/hosts/workbuddy.md，
 > 克隆仓库或复用本地副本，执行已有安装脚本并验收真实模型。沿用本机已有模型配置和密钥，
 > 默认绑定 WorkBuddy 工作目录，保留其他 MCP、hooks 和已有记忆，不改代码、不打包插件。
 > 缺少模型配置时先告诉我需要填写哪些信息，密钥通过本地终端隐藏输入，不放进聊天或命令参数。
 
 这条路径仍会经过 WorkBuddy 的命令审批；安装后需要重启，首次接入需要在 GUI 中信任 MCP。
-具体执行方式和本机验证结果见 [通过 Agent 安装](docs/workbuddy.md#通过-workbuddy-agent-安装)。
+具体执行方式和本机验证结果见 [通过 Agent 安装](docs/hosts/workbuddy.md#通过-workbuddy-agent-安装)。
 
 先安装 WorkBuddy、Rust stable / Cargo 和 Python 3.9+，然后执行：
 
 ```bash
 git clone https://github.com/RuisongZhou/pd-memory.git
 cd pd-memory
-bash scripts/workbuddy/install.sh --apply --verify-model
+bash scripts/install.sh --host workbuddy --apply --verify-model
 ```
 
 首次运行会询问模型名（默认 `qwen-plus`）、服务前缀地址和 API key；密钥输入不回显。
@@ -49,15 +49,28 @@ pd-memory 的「信任」，确认 **7/7 个工具已启用**。脚本不会代�
 
 ```bash
 # 只预览，不编译、不写文件、不调用模型
-bash scripts/workbuddy/install.sh --dry-run
+bash scripts/install.sh --host workbuddy --dry-run
 
 # 恢复最近一次安装前的文件，保留记忆数据
-bash scripts/workbuddy/install.sh --rollback
+bash scripts/install.sh --host workbuddy --rollback
 ```
 
 重复安装不会重复添加 hooks；原有 MCP、hooks 和其他设置会保留。安装或验收失败时自动恢复
 原文件；回退遇到安装后的用户修改会停止，避免覆盖新设置。
-无交互安装、离线演示、目录布局及排查见 [安装与集成指南](docs/workbuddy.md)。
+无交互安装、离线演示、目录布局及排查见 [安装与集成指南](docs/hosts/workbuddy.md)。
+
+## 接入 Codex
+
+需要 Python 3.11+。安装后在 Codex 中执行 `/hooks`（App：Settings → Hooks）信任四个 pd-memory hooks：
+
+```bash
+bash scripts/install.sh --host codex --apply --verify-model --workspace /absolute/path/to/project
+```
+
+详见 [Codex 安装与集成](docs/hosts/codex.md)。
+
+各宿主的事件、超时与能力对照，以及新增宿主的步骤，见 [接入宿主总览](docs/hosts/README.md)。
+
 以下章节保留手动配置方法。
 
 ## 1. 编译与安装
@@ -279,12 +292,12 @@ chmod 755 "$HOME/.local/bin/pd-memory-workbuddy"
 | 返回演示内容 | 是否仍设置 `PD_MEMORY_PROVIDER=mock`；不要用离线示例安装结果接生产模型 |
 | 缺少真实记忆但 hooks 没有阻止聊天 | hooks 设计为出错后继续；查看 stderr，执行 doctor 和手动 flush 定位 |
 
-生产安装入口为 `scripts/workbuddy/install.sh`；
+生产安装入口为 `scripts/install.sh --host workbuddy`；`scripts/workbuddy/install.sh` 和
 `examples/workbuddy/install_workbuddy.sh` 也转发到同一实现。默认预览，`--apply` 才写入。
 只有显式传入 `--mock` 才安装演示模型：
 
 ```bash
-bash scripts/workbuddy/install.sh --dry-run
+bash scripts/install.sh --host workbuddy --dry-run
 ```
 
 不连接真实模型的 WorkBuddy 契约测试：
@@ -293,7 +306,7 @@ bash scripts/workbuddy/install.sh --dry-run
 bash examples/workbuddy/run_e2e.sh --no-real
 ```
 
-详细载荷、安装回退和历史验证范围见 [WorkBuddy 集成指南](docs/workbuddy.md)。
+详细载荷、安装回退和历史验证范围见 [WorkBuddy 集成指南](docs/hosts/workbuddy.md)。
 WorkBuddy 5.8.3 的 56 项模拟器/真实 CLI 检查、GUI 7/7 工具及独立 Qwen 链路已验证；
 GUI 会话中的自动注入仍需单独验收，见 [验证说明](docs/upstream.md)。
 
