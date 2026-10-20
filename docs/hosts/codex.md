@@ -78,8 +78,9 @@ tool_timeout_sec = 300
   其他事件一律 `{"continue":true}`。
 - **SessionEnd 不 flush**：Codex 给 SessionEnd 默认 1 秒、上限 3 秒，超时即终止进程。flush
   需要模型调用，因此这里只捕获；积压由下一个会话的首次召回处理（与 WorkBuddy 相同的首次召回屏障，
-  标记与锁位于工作目录数据下的 `control/codex/`）。SessionEnd 等锁最多 1.5 秒，拿不到就放弃，
-  最后一轮通常已由 Stop 捕获。
+  标记位于工作目录数据下的 `control/codex/`）。锁 `control/hooks.lock` 由同一工作目录的所有宿主共用，
+  与 WorkBuddy 共享工作目录时两边的 hooks 互相串行。SessionEnd 等锁最多 1 秒（预算的三分之一），
+  拿不到就放弃，把剩余约 2 秒留给打开引擎、读取 rollout 尾部和捕获；最后一轮通常已由 Stop 捕获。
 - **`transcript_path` 可为 `null`**：Codex 无 rollout 时传 `null`，按空值处理。
 - 其他事件（PreCompact、SubagentStop、Interrupt 等）未安装；若被调用也只输出 `{"continue":true}`。
 

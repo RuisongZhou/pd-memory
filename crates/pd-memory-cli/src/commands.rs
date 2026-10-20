@@ -82,15 +82,13 @@ pub fn serve_mcp(options: &GlobalOptions) -> Result<()> {
 /// This command is intentionally infallible from the host's point of view: any
 /// internal failure is logged to stderr and downgraded to `{"continue":true}`.
 pub fn hook(options: &GlobalOptions, host: Option<&dyn HostAdapter>) {
-    let mut line = hook_output_from_stdin(options, host);
-    line.push('\n');
-    print!("{line}");
+    println!("{}", hook_output_from_stdin(options, host));
     let _ = std::io::stdout().flush();
 }
 
 /// Rendered stdout JSON (without newline) for one hook invocation.
 fn hook_output_from_stdin(options: &GlobalOptions, host: Option<&dyn HostAdapter>) -> String {
-    let fallback = || render(&HookOutput::continue_only());
+    let fallback = || pd_memory_hooks::render_json(&HookOutput::continue_only());
     let mut raw = String::new();
     if let Err(error) = std::io::stdin().read_to_string(&mut raw) {
         log::error!("could not read hook stdin ({error}); continuing");
@@ -129,18 +127,12 @@ fn hook_output_from_stdin(options: &GlobalOptions, host: Option<&dyn HostAdapter
         return session.dispatch(&engine, &input);
     }
     match pd_memory_hooks::dispatch(&engine, &input) {
-        Ok(output) => render(&output),
+        Ok(output) => pd_memory_hooks::render_json(&output),
         Err(error) => {
             log::error!("hook dispatch failed ({error}); continuing");
             fallback()
         }
     }
-}
-
-fn render(output: &HookOutput) -> String {
-    let mut line = pd_memory_hooks::render_output(output);
-    line.pop();
-    line
 }
 
 /// `pd-memory add` — capture one turn (positional text or JSON on stdin).

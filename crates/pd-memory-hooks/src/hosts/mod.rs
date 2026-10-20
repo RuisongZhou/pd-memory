@@ -72,8 +72,8 @@ pub enum EventKind {
 pub struct HostCaps {
     /// How long the host lets the session-end hook run before killing it.
     /// Below [`HostCaps::MIN_END_FLUSH_MS`] the hook only captures (no
-    /// maintenance, no backlog flush) and waits at most half the budget for
-    /// the host lock.
+    /// maintenance, no backlog flush) and waits at most a third of the budget
+    /// for the workspace lock.
     pub end_budget_ms: u64,
     /// Whether hook payloads carry a usable `transcript_path`.
     pub has_transcript: bool,
@@ -93,10 +93,17 @@ impl HostCaps {
         self.end_budget_ms >= Self::MIN_END_FLUSH_MS
     }
 
-    /// Longest time to wait for the host lock before giving up on `event`.
+    /// Longest time to wait for the workspace lock before giving up on `event`.
+    ///
+    /// A capture-only session end (budget below [`Self::MIN_END_FLUSH_MS`])
+    /// waits a third of its budget, leaving two thirds to open the engine, read
+    /// the transcript and capture before the host kills the process. Giving up
+    /// loses little: the holder is usually the turn's `Stop`, which already
+    /// captured the same transcript. Other events wait
+    /// [`Self::DEFAULT_LOCK_WAIT_MS`].
     pub fn lock_wait_ms(&self, event: EventKind) -> u64 {
         match event {
-            EventKind::End => (self.end_budget_ms / 2).min(Self::DEFAULT_LOCK_WAIT_MS),
+            EventKind::End if !self.end_can_flush() => self.end_budget_ms / 3,
             _ => Self::DEFAULT_LOCK_WAIT_MS,
         }
     }
@@ -110,7 +117,7 @@ impl HostCaps {
 /// One agent platform's hook contract.
 pub trait HostAdapter: Sync {
     /// Stable id: the `hook --host <id>` value and the `control/<id>/`
-    /// directory holding this host's lock and session markers.
+    /// directory holding this host's session markers.
     fn id(&self) -> &'static str;
 
     /// Human-readable name used in logs.
@@ -176,9 +183,7 @@ pub fn render_claude_code(
     if !caps.injects_on(event.kind()) {
         outcome.hook_specific_output = None;
     }
-    let mut line = crate::render_output(&outcome);
-    line.pop();
-    line
+    crate::render_json(&outcome)
 }
 
 #[cfg(test)]
@@ -208,7 +213,7 @@ mod tests {
             has_transcript: true,
             inject_on: &[],
         };
-        assert_eq!(short.lock_wait_ms(EventKind::End), 1_500);
+        assert_eq!(short.lock_wait_ms(EventKind::End), 1_000);
         assert_eq!(short.lock_wait_ms(EventKind::Recall), 120_000);
         assert!(!short.end_can_flush());
         let long = HostCaps {

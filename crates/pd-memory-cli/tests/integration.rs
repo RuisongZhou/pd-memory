@@ -312,7 +312,7 @@ fn workbuddy_failed_hook_keeps_backlog_and_retries_next_prompt() {
     harness.capture("old", fact);
     let path = harness
         .root()
-        .join("workspaces/integration/control/workbuddy/hooks.lock");
+        .join("workspaces/integration/control/hooks.lock");
     std::fs::create_dir_all(&path).unwrap(); // Deterministic lock failure, even as root.
     let prompt = serde_json::json!({"prompt":"What is the Boreal release code?"});
     let failed = harness.workbuddy_hook("UserPromptSubmit", "new", prompt.clone());
@@ -466,7 +466,7 @@ fn codex_session_end_captures_without_flush_and_first_recall_drains() {
     assert_eq!(state["indexTraces"][0]["reason"], "codex:first-recall");
     assert!(harness
         .root()
-        .join("workspaces/integration/control/codex/hooks.lock")
+        .join("workspaces/integration/control/hooks.lock")
         .is_file());
 }
 
@@ -524,8 +524,12 @@ fn host_flag_and_legacy_aliases_are_equivalent() {
             assert_eq!(harness.pending(), 0, "{host}: first recall drains backlog");
             assert!(harness
                 .root()
-                .join(format!("workspaces/integration/control/{host}/hooks.lock"))
+                .join("workspaces/integration/control/hooks.lock")
                 .is_file());
+            let markers = harness
+                .root()
+                .join(format!("workspaces/integration/control/{host}"));
+            assert_eq!(std::fs::read_dir(markers).unwrap().count(), 1, "{host}");
             outputs.push(String::from_utf8(output.stdout).unwrap());
         }
         assert_eq!(outputs[0], outputs[1], "{host}");

@@ -170,10 +170,14 @@ pub fn parse_input(raw: &str) -> HookInput {
     }
 }
 
+/// Serialize one hook output as a single JSON object (no newline).
+pub fn render_json(output: &HookOutput) -> String {
+    serde_json::to_string(output).unwrap_or_else(|_| "{\"continue\":true}".to_string())
+}
+
 /// Serialize one hook output as a single stdout line (with newline).
 pub fn render_output(output: &HookOutput) -> String {
-    let mut line =
-        serde_json::to_string(output).unwrap_or_else(|_| "{\"continue\":true}".to_string());
+    let mut line = render_json(output);
     line.push('\n');
     line
 }
@@ -235,11 +239,6 @@ pub fn hook_output_for_raw(engine: &MemoryEngine, raw: &str) -> HookOutput {
             HookOutput::continue_only()
         }
     }
-}
-
-/// Capture one hook input against the engine without scheduled maintenance.
-pub fn capture_only(engine: &MemoryEngine, input: &HookInput) -> HookOutput {
-    capture_only_with(&events::EngineHooks::new(engine), input)
 }
 
 /// Dispatch one already-parsed hook input against the engine.

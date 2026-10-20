@@ -2,12 +2,12 @@
 //!
 //! Every host gets the same three guarantees; [`HostCaps`] tunes them:
 //!
-//! - **Host lock**: hooks of one host run one at a time across processes,
+//! - **Workspace lock**: hooks run one at a time per workspace across
+//!   processes *and hosts* (WorkBuddy and Codex may share one workspace),
 //!   including engine construction, so each sees state committed by the
-//!   previous capture/flush/recall. The lock is `control/<id>/hooks.lock`
-//!   under the workspace data directory; the OS releases it when the process
-//!   exits, even if the host kills it. Session end waits at most half of
-//!   [`HostCaps::end_budget_ms`].
+//!   previous capture/flush/recall. The lock is `control/hooks.lock` under the
+//!   workspace data directory; the OS releases it when the process exits, even
+//!   if the host kills it. Wait limits come from [`HostCaps::lock_wait_ms`].
 //! - **First-recall barrier**: the first non-empty prompt of a session drains
 //!   the indexing backlog before recall, then writes the session marker
 //!   `control/<id>/<sha1(session key)>.checked`. A failed drain leaves no
@@ -32,17 +32,13 @@ use crate::events::{self, EngineHooks, HookEngine};
 use crate::hosts::{CanonicalEvent, HostAdapter};
 use crate::HookInput;
 
-/// Directory holding one host's lock and session markers.
-pub fn control_dir(config: &MemoryConfig, host: &dyn HostAdapter) -> PathBuf {
-    config
-        .store_layout()
-        .roots
-        .workspace_dir
-        .join("control")
-        .join(host.id())
+/// Workspace control directory: holds the shared `hooks.lock` and one
+/// `<host id>/` directory of session markers per host.
+pub fn control_dir(config: &MemoryConfig) -> PathBuf {
+    config.store_layout().roots.workspace_dir.join("control")
 }
 
-/// One hook invocation holding its host's lock.
+/// One hook invocation holding the workspace hook lock.
 pub struct Session<'a> {
     host: &'a dyn HostAdapter,
     event: CanonicalEvent,
@@ -51,18 +47,20 @@ pub struct Session<'a> {
 }
 
 impl<'a> Session<'a> {
-    /// Acquire `host`'s lock under `config`'s workspace data directory.
+    /// Acquire the hook lock of `config`'s workspace for `host`.
     pub fn lock(
         host: &'a dyn HostAdapter,
         config: &MemoryConfig,
         input: &HookInput,
     ) -> Result<Self> {
-        Self::lock_in(host, &control_dir(config, host), input)
+        Self::lock_in(host, &control_dir(config), input)
     }
 
-    /// Acquire `host`'s lock in an explicit control directory.
-    pub fn lock_in(host: &'a dyn HostAdapter, directory: &Path, input: &HookInput) -> Result<Self> {
+    /// Acquire the hook lock in an explicit workspace control directory:
+    /// `<control>/hooks.lock`, markers under `<control>/<host id>/`.
+    pub fn lock_in(host: &'a dyn HostAdapter, control: &Path, input: &HookInput) -> Result<Self> {
         let event = host.normalize(input);
+        let directory = control.join(host.id());
         let mut builder = fs::DirBuilder::new();
         builder.recursive(true);
         #[cfg(unix)]
@@ -71,9 +69,9 @@ impl<'a> Session<'a> {
             builder.mode(0o700);
         }
         builder
-            .create(directory)
-            .map_err(|error| MemoryError::io(directory, error))?;
-        let path = directory.join("hooks.lock");
+            .create(&directory)
+            .map_err(|error| MemoryError::io(&directory, error))?;
+        let path = control.join("hooks.lock");
         let lock = private_file(&path)?;
         let timeout = Duration::from_millis(host.caps().lock_wait_ms(event.kind()));
         let started = Instant::now();
@@ -262,14 +260,51 @@ mod tests {
         assert!(stalled.unwrap_err().to_string().contains("no progress"));
     }
 
-    #[test]
-    fn lock_and_marker_paths_are_stable() {
-        let config = MemoryConfig::for_data_root("/data");
-        for host in hosts::all() {
-            let directory = control_dir(&config, *host);
-            assert!(directory.ends_with(Path::new("control").join(host.id())));
-            assert!(directory.starts_with(config.store_layout().roots.workspace_dir));
+    fn input(event: &str, session: &str) -> HookInput {
+        HookInput {
+            hook_event_name: event.into(),
+            session_id: session.into(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn lock_is_shared_and_markers_are_per_host() {
+        let config = MemoryConfig::for_data_root("/data");
+        let control = control_dir(&config);
+        assert!(control.ends_with("control"));
+        assert!(control.starts_with(config.store_layout().roots.workspace_dir));
+
+        let dir = tempfile::tempdir().unwrap();
+        for host in hosts::all() {
+            let session = Session::lock_in(*host, dir.path(), &input("Stop", "s")).unwrap();
+            let marker = session.checked.clone().unwrap();
+            assert_eq!(marker.parent().unwrap(), dir.path().join(host.id()));
+        }
+        assert!(dir.path().join("hooks.lock").is_file());
+    }
+
+    #[test]
+    fn different_hosts_contend_on_the_same_workspace_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let workbuddy = hosts::by_id("workbuddy").unwrap();
+        let codex = hosts::by_id("codex").unwrap();
+        let held = Session::lock_in(workbuddy, dir.path(), &input("Stop", "wb")).unwrap();
+        // Codex SessionEnd gives up after its short wait instead of running
+        // concurrently with the WorkBuddy hook.
+        let started = Instant::now();
+        let blocked = Session::lock_in(codex, dir.path(), &input("SessionEnd", "cx"));
+        assert!(blocked
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("Codex hook lock timed out"));
+        assert!(
+            started.elapsed()
+                >= Duration::from_millis(codex.caps().lock_wait_ms(hosts::EventKind::End))
+        );
+        drop(held);
+        Session::lock_in(codex, dir.path(), &input("SessionEnd", "cx")).unwrap();
     }
 
     #[test]
@@ -277,8 +312,7 @@ mod tests {
         let codex = hosts::by_id("codex").unwrap().caps();
         let workbuddy = hosts::by_id("workbuddy").unwrap().caps();
         let end = hosts::EventKind::End;
-        assert!(codex.lock_wait_ms(end) < 3_000);
-        assert_eq!(codex.lock_wait_ms(end), 1_500);
+        assert_eq!(codex.lock_wait_ms(end), 1_000);
         assert_eq!(
             codex.lock_wait_ms(hosts::EventKind::Recall),
             workbuddy.lock_wait_ms(end)

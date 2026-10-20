@@ -10,7 +10,7 @@ pd-memory 通过两条通道接入 Agent 宿主：stdio MCP（七个记忆工具
 
 其余部分与宿主无关：
 
-- `crates/pd-memory-hooks/src/policy.rs`：宿主锁、首次召回积压屏障、会话结束策略，只读 `HostCaps`；
+- `crates/pd-memory-hooks/src/policy.rs`：工作目录锁（所有宿主共用）、首次召回积压屏障、会话结束策略，只读 `HostCaps`；
 - `crates/pd-memory-hooks/src/events.rs`：各规范事件的通用行为（概览、召回、捕获、flush）；
 - `crates/pd-memory-hooks/src/transcript/`：`claude.rs`、`workbuddy.rs`、`codex.rs` 三种格式，
   默认读取器逐行自动识别；
@@ -23,7 +23,7 @@ pd-memory 通过两条通道接入 Agent 宿主：stdio MCP（七个记忆工具
 
 ```text
 stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
-   ─policy::Session（锁 control/<id>/hooks.lock、会话标记、HostCaps）─> events（通用行为）
+   ─policy::Session（锁 control/hooks.lock、标记 control/<id>/、HostCaps）─> events（通用行为）
    ─HostAdapter::render─> stdout 一行 JSON
 ```
 
@@ -41,7 +41,8 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 `HostCaps` 字段：
 
 - `end_budget_ms`：宿主允许会话结束 hook 运行的时间。低于 30 秒时 `End` 只捕获，不做模型调用；
-  `End` 等待宿主锁最多为预算的一半（上限 120 秒），其他事件最多 120 秒。
+  只捕获的 `End` 等待工作目录锁最多为预算的三分之一（Codex 为 1 秒），其余时间留给打开引擎、
+  读取 transcript 和捕获；其他事件最多等 120 秒。
 - `has_transcript`：payload 是否带可用的 `transcript_path`；为 `false` 时不读 transcript，
   只用 `last_assistant_message` 兜底捕获。
 - `inject_on`：允许输出 `hookSpecificOutput` 的事件；其他事件一律只输出 `{"continue":true}`。
@@ -95,8 +96,8 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 
 不变量：
 
-- 锁与会话标记路径为 `<数据目录>/workspaces/<工作区>/control/<id>/`（`hooks.lock`、
-  `<sha1(会话键)>.checked`），由 `id` 决定，改名会让已有安装的标记失效。
+- 同一工作目录只有一把 hook 锁 `<数据目录>/workspaces/<工作区>/control/hooks.lock`，所有宿主共用；
+  会话标记为 `control/<id>/<sha1(会话键)>.checked`，由 `id` 决定，改名会让已有安装的标记失效。
 - 已发布宿主写入配置的 hook 命令（`hook --workbuddy`、`hook --codex`）保持不变：Codex 按命令哈希记录信任。
 - 任何失败都输出 `{"continue":true}` 且退出码为 0；hook 不阻断宿主。
 
