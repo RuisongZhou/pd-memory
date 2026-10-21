@@ -195,10 +195,14 @@ fn parse_line(line: &str, parsed: &mut Vec<Parsed>, skipped: &mut usize) {
 pub(crate) struct Parsed {
     pub(crate) message: MemoryMessage,
     pub(crate) commentary: bool,
+    /// A user turn with no text (a Codex image-only prompt): it ends the
+    /// assistant run before it but is not returned as a message.
+    pub(crate) boundary: bool,
 }
 
 /// Within each run of assistant messages, drop Codex `commentary` when the
-/// run has a final answer; otherwise keep only the last commentary.
+/// run has a final answer; otherwise keep only the last commentary. Runs are
+/// separated by user messages and by text-less user turns (`boundary`).
 fn prefer_final_answers(parsed: Vec<Parsed>) -> Vec<MemoryMessage> {
     fn flush(run: &mut Vec<Parsed>, messages: &mut Vec<MemoryMessage>) {
         if run.iter().any(|entry| !entry.commentary) {
@@ -219,7 +223,9 @@ fn prefer_final_answers(parsed: Vec<Parsed>) -> Vec<MemoryMessage> {
             run.push(entry);
         } else {
             flush(&mut run, &mut messages);
-            messages.push(entry.message);
+            if !entry.boundary {
+                messages.push(entry.message);
+            }
         }
     }
     flush(&mut run, &mut messages);
@@ -246,6 +252,7 @@ fn record_to_parsed(value: &Value) -> Option<Parsed> {
     claude::record_to_message(value).map(|message| Parsed {
         message,
         commentary: false,
+        boundary: false,
     })
 }
 
@@ -336,7 +343,7 @@ mod tests {
         let mut out = String::new();
         for index in 0..lines {
             let text = format!("m{index} Boreal 记忆 ✓ {}", "x".repeat(next() % 40));
-            let line = match next() % 12 {
+            let line = match next() % 13 {
                 0 | 1 => codex("user", None, &text),
                 2 | 3 => codex("assistant", Some("commentary"), &text),
                 4 => codex("assistant", Some("final_answer"), &text),
@@ -347,6 +354,10 @@ mod tests {
                     .to_string(),
                 9 => "{ not json".to_string(),
                 10 => String::new(),
+                11 => serde_json::json!({"type": "response_item", "payload": {
+                    "type": "message", "role": "user", "content": [{"type": "input_image"}]
+                }})
+                .to_string(),
                 _ => serde_json::json!({"timestamp": "t", "type": "event_msg", "payload": {"type": "x"}})
                     .to_string(),
             };

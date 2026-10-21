@@ -31,11 +31,13 @@ pub(crate) fn codex_message(payload: &serde_json::Map<String, Value>) -> Option<
         other => vec![other],
     };
     let mut collected = String::new();
+    let mut has_image = false;
     for block in blocks {
         let text = match block {
             Value::String(text) => Some(text.as_str()),
             Value::Object(block) => {
                 let block_type = block.get("type").and_then(Value::as_str).unwrap_or("text");
+                has_image |= block_type == "input_image";
                 if !matches!(block_type, "text" | "input_text" | "output_text") {
                     continue;
                 }
@@ -56,13 +58,21 @@ pub(crate) fn codex_message(payload: &serde_json::Map<String, Value>) -> Option<
         }
     }
     if collected.is_empty() {
-        return None;
+        // An image-only prompt has no text to keep but still starts a turn;
+        // without it the turns before and after would merge into one
+        // assistant run.
+        return (role == "user" && has_image).then(|| Parsed {
+            message: MemoryMessage::new(role, ""),
+            commentary: false,
+            boundary: true,
+        });
     }
     let commentary =
         role == "assistant" && payload.get("phase").and_then(Value::as_str) == Some("commentary");
     Some(Parsed {
         message: MemoryMessage::new(role, collected),
         commentary,
+        boundary: false,
     })
 }
 
@@ -297,6 +307,44 @@ mod tests {
                 "assistant:answer two",
                 "user:third question",
                 "assistant:answer three",
+            ]
+        );
+    }
+
+    #[test]
+    fn codex_image_only_prompt_still_separates_turns() {
+        let lines = vec![
+            codex_message("user", None, &[("input_text", "first question")]),
+            codex_message(
+                "assistant",
+                Some("final_answer"),
+                &[("output_text", "answer one")],
+            ),
+            codex_message(
+                "user",
+                None,
+                &[
+                    ("input_text", "<image name=[Image #1]>"),
+                    ("input_image", ""),
+                    ("input_text", "</image>"),
+                ],
+            ),
+            codex_message(
+                "assistant",
+                Some("commentary"),
+                &[("output_text", "looking at the screenshot")],
+            ),
+        ];
+        let contents: Vec<String> = parse_lines(&lines)
+            .into_iter()
+            .map(|m| format!("{}:{}", m.role, m.content))
+            .collect();
+        assert_eq!(
+            contents,
+            vec![
+                "user:first question",
+                "assistant:answer one",
+                "assistant:looking at the screenshot",
             ]
         );
     }

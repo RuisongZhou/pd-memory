@@ -87,6 +87,15 @@ def merge_config_toml(text, wrapper):
         lines[-1] += "\n"
     block = toml_block(wrapper) if wrapper else []
     out, skipped, found, inside = [], [], False, False
+
+    def keep_trailing_comments():
+        # Blank lines and comments ending our table belong to what follows it
+        # (the next table, or the end of the file); we never write comments.
+        tail = []
+        while skipped and (not skipped[-1].strip() or skipped[-1].lstrip().startswith("#")):
+            tail.insert(0, skipped.pop())
+        out.extend(tail)
+
     for line in lines:
         if OUR_TABLE.match(line):
             if not found:
@@ -95,15 +104,13 @@ def merge_config_toml(text, wrapper):
             continue
         if inside and ANY_TABLE.match(line):
             inside = False
-            # Blank lines and comments just before the next table belong to it.
-            tail = []
-            while skipped and (not skipped[-1].strip() or skipped[-1].lstrip().startswith("#")):
-                tail.insert(0, skipped.pop())
-            out.extend(tail)
+            keep_trailing_comments()
         if inside:
             skipped.append(line)
         else:
             out.append(line)
+    if inside:
+        keep_trailing_comments()
     if SERVER in servers and not found:
         raise InstallError(
             f"config.toml defines {SERVER} inline; move it to a [mcp_servers.{SERVER}] table "
@@ -229,8 +236,12 @@ def codex_app_server(codex_home, requests, timeout=30):
     wanted = {r["id"] for r in requests if "id" in r}
     responses, buffer = {}, b""
     try:
-        process.stdin.write("".join(json.dumps(r) + "\n" for r in requests).encode())
-        process.stdin.flush()
+        try:
+            process.stdin.write("".join(json.dumps(r) + "\n" for r in requests).encode())
+            process.stdin.flush()
+        except BrokenPipeError:
+            # Exited before reading (e.g. a CLI without `app-server`): no answers.
+            return responses
         deadline = time.monotonic() + timeout
         while wanted - responses.keys() and time.monotonic() < deadline:
             if not select.select([process.stdout], [], [], 0.2)[0]:
@@ -250,10 +261,13 @@ def codex_app_server(codex_home, requests, timeout=30):
     finally:
         try:
             os.killpg(process.pid, 9)
-        except ProcessLookupError:
-            pass
+        except (ProcessLookupError, PermissionError):
+            pass  # already gone; macOS reports EPERM for a group of zombies
         process.wait()
-        process.stdin.close()
+        try:
+            process.stdin.close()  # flushes whatever a failed write left buffered
+        except BrokenPipeError:
+            pass
         process.stdout.close()
     return responses
 

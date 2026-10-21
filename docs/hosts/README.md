@@ -97,7 +97,9 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 不变量：
 
 - 同一工作目录只有一把 hook 锁 `<数据目录>/workspaces/<工作区>/control/hooks.lock`，所有宿主共用；
-  会话标记为 `control/<id>/<sha1(会话键)>.checked`，由 `id` 决定，改名会让已有安装的标记失效。
+  之后再取 `control/<id>/hooks.lock`（旧版按宿主加锁的二进制只取这一把），两把都持有，升级期间仍在运行的旧 hook 也被串行。
+  会话标记为 `control/<id>/<sha1(会话键)>.checked`，由 `id` 决定，改名会让已有安装的标记失效；
+  SessionEnd 即使等锁超时也会删除本会话的标记。
 - 已发布宿主写入配置的 hook 命令（`hook --workbuddy`、`hook --codex`）保持不变：Codex 按命令哈希记录信任。
 - 任何失败都输出 `{"continue":true}` 且退出码为 0；hook 不阻断宿主。
 

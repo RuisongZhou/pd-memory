@@ -71,6 +71,15 @@ class TomlMergeTests(unittest.TestCase):
         self.assertIn('\n\n# trust\n[hooks.state.', removed)
         self.assertEqual(toml(removed)["hooks"], toml(old)["hooks"])
 
+    def test_comments_after_our_table_at_end_of_file_survive(self):
+        tail = "\n# keep me: [mcp_servers.other] disabled\n"
+        text = installer.merge_config_toml(CONFIG, Path("/old/pd-memory-codex")) + tail
+        merged = installer.merge_config_toml(text, WRAPPER)
+        self.assertEqual(merged, text.replace("/old/pd-memory-codex", str(WRAPPER)))
+        removed = installer.merge_config_toml(merged, None)
+        self.assertTrue(removed.startswith(CONFIG) and removed.endswith(tail), removed)
+        self.assertNotIn("pd-memory", removed)
+
     def test_quoted_header_and_subtables_are_replaced(self):
         text = CONFIG + '\n[mcp_servers."pd-memory"]\ncommand = "old"\n\n[mcp_servers."pd-memory".env]\nX = "1"\n'
         merged = installer.merge_config_toml(text, WRAPPER)
@@ -156,6 +165,19 @@ class HookMergeTests(unittest.TestCase):
                       {"hooks": {"Stop": [{"hooks": ["x"]}]}}]:
             with self.assertRaises(common.InstallError):
                 installer.merge_hooks(value, WRAPPER, Path("/bin/pd-memory"))
+
+
+class AppServerTests(unittest.TestCase):
+    def test_cli_that_exits_without_reading_yields_no_answers(self):
+        with tempfile.TemporaryDirectory(prefix="pd-memory-codex-bin-") as temporary:
+            fake = Path(temporary) / "codex"
+            fake.write_text("#!/bin/sh\nexit 2\n")
+            fake.chmod(0o755)
+            # Larger than a pipe buffer, so the write fails once codex is gone.
+            request = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                       "params": {"pad": "x" * (1 << 20)}}
+            with mock.patch.dict(os.environ, {"PATH": temporary + os.pathsep + os.environ["PATH"]}):
+                self.assertEqual(installer.codex_app_server(Path(temporary), [request]), {})
 
 
 class InstallationTests(unittest.TestCase):
@@ -261,6 +283,31 @@ class InstallationTests(unittest.TestCase):
         result = self.run_installer("--rollback", ok=False, workspace=False)
         self.assertIn("--uninstall", result.stderr)
         self.assertTrue(self.wrapper.exists())
+
+    def test_rollback_keeps_the_binary_another_host_still_uses(self):
+        def workbuddy(*args):
+            result = subprocess.run(
+                ["bash", str(common.ROOT / "scripts/install.sh"), "--host", "workbuddy",
+                 "--home", str(self.home), "--binary", str(BINARY), "--non-interactive",
+                 "--workspace", str(self.project), *args],
+                text=True, capture_output=True, env=self.env, timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return result
+        binary = self.home / ".local/bin/pd-memory"
+        workbuddy("--apply", "--mock")  # first install: its backup has no binary
+        self.run_installer("--apply", "--mock")
+        result = workbuddy("--rollback")
+        self.assertIn(f"kept {binary}: still used by Codex", result.stdout)
+        self.assertFalse((self.home / ".local/bin/pd-memory-workbuddy").exists())
+        self.assertTrue(binary.exists())
+        stop = subprocess.run([str(self.wrapper), "hook", "--codex"],
+                              input='{"hook_event_name":"Stop","session_id":"s"}',
+                              capture_output=True, text=True, env=self.env, timeout=30)
+        self.assertEqual(stop.stdout, '{"continue":true}\n')
+        # With no other host left, rollback restores everything as before.
+        self.run_installer("--rollback", workspace=False)
+        self.assertFalse(self.wrapper.exists())
 
     def test_uninstall_removes_only_our_entries(self):
         self.seed()

@@ -373,9 +373,11 @@ def verify_empty_root(command, mock):
 
 # --- transaction ------------------------------------------------------------
 
-def restore(backup, manifest):
+def restore(backup, manifest, keep=frozenset()):
+    """Restore every manifest file except the paths in `keep`, which stay as they are."""
+    files = [item for item in manifest["files"] if item["path"] not in keep]
     # Preflight every file, so a conflict never causes a partial rollback.
-    for item in manifest["files"]:
+    for item in files:
         path = Path(item["path"])
         current, mode = snapshot(path)
         if digest(current) != item["after_sha256"] or mode != item["after_mode"]:
@@ -384,7 +386,7 @@ def restore(backup, manifest):
             before = (backup / item["backup"]).read_bytes()
             if digest(before) != item["before_sha256"]:
                 raise InstallError(f"Invalid backup for {path}")
-    for item in reversed(manifest["files"]):
+    for item in reversed(files):
         path = Path(item["path"])
         if item["backup"]:
             atomic_write(path, (backup / item["backup"]).read_bytes(), item["before_mode"])
@@ -499,12 +501,16 @@ def arguments(argv=None):
     return host, args
 
 
+def state_dir(host, state_root):
+    return state_root / host.STATE_SUBDIR if host.STATE_SUBDIR else state_root
+
+
 def paths_for(host, args):
     home = args.home
     paths = types.SimpleNamespace(home=home)
     paths.private = home / ".config/pd-memory"
     paths.state_root = home / ".local/state/pd-memory/installations"
-    paths.state = paths.state_root / host.STATE_SUBDIR if host.STATE_SUBDIR else paths.state_root
+    paths.state = state_dir(host, paths.state_root)
     paths.binary = home / ".local/bin/pd-memory"
     paths.wrapper = paths.binary.with_name(host.WRAPPER_NAME)
     paths.shared_config = paths.private / "config.json"
@@ -526,12 +532,38 @@ def rollback(host, paths, target):
         raise InstallError("Not an installed pd-memory backup")
     try:
         with installation_lock(paths.state_root):
-            restore(backup, manifest)
+            # The binary and model.env are shared by every host's wrapper.
+            users = other_installed_hosts(host, paths.state_root)
+            shared = {str(paths.binary), str(paths.credentials)} if users else set()
+            keep = {item["path"] for item in manifest["files"] if item["path"] in shared}
+            restore(backup, manifest, keep)
     except InstallError as error:
         if host.ROLLBACK_CONFLICT_HINT and "Changed since installation" in str(error):
             raise InstallError(f"{error}. {host.ROLLBACK_CONFLICT_HINT}") from error
         raise
+    for path in sorted(keep):
+        print(f"[rollback] kept {path}: still used by {', '.join(users)}")
     print(f"[rollback] original files restored; memory data retained. Restart {host.LABEL}.")
+
+
+def other_installed_hosts(host, state_root):
+    """Labels of the other hosts whose latest installation is still in place."""
+    users = []
+    for other_id in HOSTS:
+        if other_id == host.ID:
+            continue
+        other = load_host(other_id)
+        latest = state_dir(other, state_root) / "latest"
+        if not latest.is_file():
+            continue
+        try:
+            backup = Path(latest.read_text(encoding="utf-8").strip())
+            status = read_object(backup / "manifest.json").get("status")
+        except (InstallError, OSError, UnicodeError):
+            status = "installed"  # unreadable: assume it is still in use
+        if status == "installed":
+            users.append(other.LABEL)
+    return users
 
 
 def build_binary(args, required_flag=None):

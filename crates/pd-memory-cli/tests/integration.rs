@@ -529,7 +529,15 @@ fn host_flag_and_legacy_aliases_are_equivalent() {
             let markers = harness
                 .root()
                 .join(format!("workspaces/integration/control/{host}"));
-            assert_eq!(std::fs::read_dir(markers).unwrap().count(), 1, "{host}");
+            assert!(markers.join("hooks.lock").is_file(), "{host}");
+            let checked = std::fs::read_dir(markers)
+                .unwrap()
+                .filter(|entry| {
+                    let path = entry.as_ref().unwrap().path();
+                    path.extension().is_some_and(|ext| ext == "checked")
+                })
+                .count();
+            assert_eq!(checked, 1, "{host}");
             outputs.push(String::from_utf8(output.stdout).unwrap());
         }
         assert_eq!(outputs[0], outputs[1], "{host}");
