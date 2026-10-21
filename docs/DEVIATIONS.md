@@ -15,6 +15,7 @@ it does not grant exemptions to the differential tests.
 | 4 | The JSON control plane locks individual queue/state mutations with `control/.lock`. | Replaces SQLite transactions for those operations. | This is not a process-wide flush/Dream lock; callers must serialize operations against shared roots, as with the reference host. |
 | 5 | Files are written tmp+rename; dream commits by directory swap; JSONL appends are the only non-atomic write (torn trailing line repaired). | Crash safety requirement (spec §9.1 #7 / §9.2). | Higher robustness; no format change. |
 | 6 | SQLite control plane (optional) uses the same two tables, but its own package. | Desktop parity / inspection. | Not used by default or on Android. |
+| 28 | Memory file names and their tmp/backup siblings are capped at 255 bytes: the slug is cut on a character boundary so `<slug>-<hash10>.md` fits, and the sibling embeds a shortened copy of the target name. | Linux/Android filesystems reject longer names; a CJK character is 3 bytes, so a name of 72+ CJK characters already overflowed the tmp sibling and Dream's 120-character names overflowed the file itself (`File name too long`). | Names whose slug fits (every extraction-sized name) are unchanged; only slugs over 241 bytes are shortened, which previously failed to write. |
 
 ## 2. Memory content & formatting
 

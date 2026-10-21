@@ -72,6 +72,9 @@ const DEFAULT_PROJECT_STATUS: &str = "in_progress";
 const DEFAULT_USER_PROFILE_NAME: &str = "user-profile";
 const PREVIEW_MAX_CHARS: usize = 220;
 const UNIQUE_STRINGS_MAX: usize = 50;
+/// Longest file name, in bytes, that Linux and Android filesystems (ext4,
+/// f2fs) accept. A CJK character takes 3 bytes, so long CJK names hit it.
+const MAX_FILE_NAME_BYTES: usize = 255;
 
 /// Markdown-backed [`MemoryStore`].
 #[derive(Debug)]
@@ -548,10 +551,9 @@ impl FileMemoryStore {
                         .unwrap_or_else(|| now.clone())
                 );
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     USER_NOTES_DIR,
-                    slugify(&name),
-                    hash10(&seed)
+                    bounded_file_name(&slugify(&name), &format!("-{}.md", hash10(&seed)))
                 ))
             }
             MemoryRecordType::Feedback | MemoryRecordType::Project => {
@@ -573,10 +575,9 @@ impl FileMemoryStore {
                         .unwrap_or_else(|| now.clone())
                 );
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     directory,
-                    slugify(&name),
-                    hash10(&seed)
+                    bounded_file_name(&slugify(&name), &format!("-{}.md", hash10(&seed)))
                 ))
             }
             MemoryRecordType::GeneralProjectMeta => {
@@ -589,10 +590,9 @@ impl FileMemoryStore {
                     project_id.chars().take(12).collect()
                 };
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     GENERAL_PROJECTS_DIR,
-                    slugify(&name),
-                    short_id
+                    bounded_file_name(&slugify(&name), &format!("-{short_id}.md"))
                 ))
             }
         }
@@ -2358,7 +2358,31 @@ fn unique_sibling(path: &Path, tag: &str) -> PathBuf {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "memory".to_string());
-    path.with_file_name(format!(".{name}.{tag}-{}", unique_id()))
+    // The target name may already be close to the limit; shorten the copy of
+    // it so the sibling stays creatable.
+    let suffix = format!(".{tag}-{}", unique_id());
+    let budget = MAX_FILE_NAME_BYTES.saturating_sub(1 + suffix.len());
+    path.with_file_name(format!(".{}{suffix}", truncate_bytes(&name, budget)))
+}
+
+/// `<slug><suffix>`, with the slug cut so the name fits in
+/// [`MAX_FILE_NAME_BYTES`]. Names that already fit are unchanged.
+fn bounded_file_name(slug: &str, suffix: &str) -> String {
+    let budget = MAX_FILE_NAME_BYTES.saturating_sub(suffix.len());
+    let slug = truncate_bytes(slug, budget).trim_end_matches('-');
+    format!("{slug}{suffix}")
+}
+
+/// Cut `value` to at most `max_bytes` bytes on a character boundary.
+fn truncate_bytes(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {

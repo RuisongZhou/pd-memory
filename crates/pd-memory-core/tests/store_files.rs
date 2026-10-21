@@ -122,6 +122,38 @@ fn upsert_names_project_files_and_builds_manifest() {
 }
 
 #[test]
+fn long_cjk_names_fit_the_file_name_limit() {
+    // A CJK character is 3 bytes; Linux/Android file names stop at 255 bytes.
+    let (_dir, mut store) = make_store();
+
+    // 80 characters (the extraction cap): the slug fits as-is (254-byte file
+    // name), but the atomic-write temp sibling must not exceed the limit.
+    let at_cap = "长".repeat(80);
+    let entry = store
+        .upsert_candidate(&project_candidate(&at_cap, "八十字名称"))
+        .expect("upsert an 80-character CJK name");
+    let prefix = format!("Project/{at_cap}-");
+    assert_eq!(hex10_suffix(&entry, &prefix).len(), 10);
+    assert_eq!(entry.frontmatter.name, at_cap);
+
+    // 120 characters (the Dream cap): the slug is cut to fit, the name is kept.
+    let over_cap = "长".repeat(120);
+    let entry = store
+        .upsert_candidate(&project_candidate(&over_cap, "一百二十字名称"))
+        .expect("upsert a 120-character CJK name");
+    let file_name = entry.relative_path.rsplit('/').next().expect("file name");
+    assert!(
+        file_name.len() <= 255,
+        "{} bytes: {file_name}",
+        file_name.len()
+    );
+    assert_eq!(hex10_suffix(&entry, &prefix).len(), 10);
+    assert_eq!(entry.frontmatter.name, over_cap);
+    let raw = std::fs::read_to_string(&entry.absolute_path).expect("read written file");
+    assert!(raw.contains("一百二十字名称"), "{raw}");
+}
+
+#[test]
 fn same_origin_overwrites_the_same_file_without_merging_fields() {
     let (_dir, mut store) = make_store();
     let first = store
