@@ -84,6 +84,7 @@ tool_timeout_sec = 300
   标记位于工作目录数据下的 `control/codex/`）。锁 `control/hooks.lock` 由同一工作目录的所有宿主共用，
   与 WorkBuddy 共享工作目录时两边的 hooks 互相串行。SessionEnd 等锁最多 1 秒（预算的三分之一），
   拿不到就放弃，把剩余约 2 秒留给打开引擎、读取 rollout 尾部和捕获；最后一轮通常已由 Stop 捕获。
+  放弃时仍会删除本会话的检查标记，恢复该会话后的首次提问会重新 flush。
 - **`transcript_path` 可为 `null`**：Codex 无 rollout 时传 `null`，按空值处理。
 - 其他事件（PreCompact、SubagentStop、Interrupt 等）未安装；若被调用也只输出 `{"continue":true}`。
 
@@ -116,7 +117,8 @@ bash scripts/install.sh --host codex --uninstall    # 只移除 pd-memory 的 MC
 
 备份位于 `~/.local/state/pd-memory/installations/codex/<id>`，与 WorkBuddy 的备份分开，但两个安装器
 共用一把安装锁。`--rollback` 要求目标文件自安装后没有变化；信任 hooks 后 Codex 会改写 `config.toml`，
-这时回退会整体拒绝并提示改用 `--uninstall`。`--uninstall` 同样先备份，保留二进制、模型配置和记忆数据；
+这时回退会整体拒绝并提示改用 `--uninstall`。二进制 `~/.local/bin/pd-memory` 和 `model.env` 由各宿主共用：
+另一宿主的最近一次安装仍有效时，回退保留这两个文件（输出 `[rollback] kept ...`），也不因它们被另一宿主更新而拒绝。`--uninstall` 同样先备份，保留二进制、模型配置和记忆数据；
 它不删除 `[hooks.state]` 里残留的信任记录（由 Codex 管理，留着无害）。
 
 | 路径 | 内容 |

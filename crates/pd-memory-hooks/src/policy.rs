@@ -6,12 +6,14 @@
 //!   processes *and hosts* (WorkBuddy and Codex may share one workspace),
 //!   including engine construction, so each sees state committed by the
 //!   previous capture/flush/recall. The lock is `control/hooks.lock` under the
-//!   workspace data directory; the OS releases it when the process exits, even
+//!   workspace data directory, plus `control/<id>/hooks.lock` that earlier
+//!   per-host binaries took; the OS releases both when the process exits, even
 //!   if the host kills it. Wait limits come from [`HostCaps::lock_wait_ms`].
 //! - **First-recall barrier**: the first non-empty prompt of a session drains
 //!   the indexing backlog before recall, then writes the session marker
 //!   `control/<id>/<sha1(session key)>.checked`. A failed drain leaves no
-//!   marker, so the next prompt retries. Session end removes the marker.
+//!   marker, so the next prompt retries. Session end removes the marker, even
+//!   when it gives up waiting for the lock.
 //! - **Session end**: captures the transcript. When the host allows enough
 //!   time ([`HostCaps::end_can_flush`]) it also runs due maintenance and
 //!   drains the backlog; otherwise it only captures and leaves the backlog
@@ -29,7 +31,7 @@ use pd_memory_core::types::{HeartbeatStats, MemoryMessage};
 use sha1::{Digest, Sha1};
 
 use crate::events::{self, EngineHooks, HookEngine};
-use crate::hosts::{CanonicalEvent, HostAdapter};
+use crate::hosts::{CanonicalEvent, EventKind, HostAdapter};
 use crate::HookInput;
 
 /// Workspace control directory: holds the shared `hooks.lock` and one
@@ -42,7 +44,7 @@ pub fn control_dir(config: &MemoryConfig) -> PathBuf {
 pub struct Session<'a> {
     host: &'a dyn HostAdapter,
     event: CanonicalEvent,
-    _lock: File,
+    _locks: Vec<File>,
     checked: Option<PathBuf>,
 }
 
@@ -71,25 +73,6 @@ impl<'a> Session<'a> {
         builder
             .create(&directory)
             .map_err(|error| MemoryError::io(&directory, error))?;
-        let path = control.join("hooks.lock");
-        let lock = private_file(&path)?;
-        let timeout = Duration::from_millis(host.caps().lock_wait_ms(event.kind()));
-        let started = Instant::now();
-        loop {
-            match fs2::FileExt::try_lock_exclusive(&lock) {
-                Ok(()) => break,
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    if started.elapsed() >= timeout {
-                        return Err(MemoryError::Other(format!(
-                            "{} hook lock timed out",
-                            host.label()
-                        )));
-                    }
-                    thread::sleep(Duration::from_millis(25));
-                }
-                Err(error) => return Err(MemoryError::io(&path, error)),
-            }
-        }
         let checked =
             if input.session_id.trim().is_empty() && input.transcript_path.trim().is_empty() {
                 None
@@ -97,10 +80,31 @@ impl<'a> Session<'a> {
                 let key = events::derive_session_key(input);
                 Some(directory.join(format!("{:x}.checked", Sha1::digest(key.as_bytes()))))
             };
+        let timeout = Duration::from_millis(host.caps().lock_wait_ms(event.kind()));
+        let started = Instant::now();
+        // Shared lock first, then the host's own: binaries that predate the
+        // shared lock took only `<control>/<host id>/hooks.lock`, so holding
+        // both also excludes hooks still running from a previous install.
+        let mut locks = Vec::with_capacity(2);
+        for path in [control.join("hooks.lock"), directory.join("hooks.lock")] {
+            match lock_until(host, &path, started + timeout) {
+                Ok(lock) => locks.push(lock),
+                Err(error) => {
+                    if event.kind() == EventKind::End {
+                        // The session is over even though this hook cannot
+                        // run: drop its marker so a resumed session flushes
+                        // again on its first prompt. Safe without the lock;
+                        // only this session's own recall writes the marker.
+                        remove_marker(host, checked.as_deref());
+                    }
+                    return Err(error);
+                }
+            }
+        }
         Ok(Self {
             host,
             event,
-            _lock: lock,
+            _locks: locks,
             checked,
         })
     }
@@ -177,15 +181,39 @@ impl<'a> Session<'a> {
                     );
                 }
             }
-            if let Some(path) = &self.checked {
-                if let Err(error) = fs::remove_file(path) {
-                    if error.kind() != std::io::ErrorKind::NotFound {
-                        log::warn!("{} session check cleanup failed: {error}", host.label());
-                    }
-                }
-            }
+            remove_marker(host, self.checked.as_deref());
         }
         host.render(&self.event, output)
+    }
+}
+
+/// Exclusively lock `path`, polling until `deadline`.
+fn lock_until(host: &dyn HostAdapter, path: &Path, deadline: Instant) -> Result<File> {
+    let lock = private_file(path)?;
+    loop {
+        match fs2::FileExt::try_lock_exclusive(&lock) {
+            Ok(()) => return Ok(lock),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(MemoryError::Other(format!(
+                        "{} hook lock timed out",
+                        host.label()
+                    )));
+                }
+                thread::sleep(Duration::from_millis(25));
+            }
+            Err(error) => return Err(MemoryError::io(path, error)),
+        }
+    }
+}
+
+fn remove_marker(host: &dyn HostAdapter, marker: Option<&Path>) {
+    if let Some(path) = marker {
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("{} session check cleanup failed: {error}", host.label());
+            }
+        }
     }
 }
 
@@ -280,8 +308,49 @@ mod tests {
             let session = Session::lock_in(*host, dir.path(), &input("Stop", "s")).unwrap();
             let marker = session.checked.clone().unwrap();
             assert_eq!(marker.parent().unwrap(), dir.path().join(host.id()));
+            assert!(dir.path().join(host.id()).join("hooks.lock").is_file());
         }
         assert!(dir.path().join("hooks.lock").is_file());
+    }
+
+    #[test]
+    fn per_host_lock_of_earlier_binaries_still_excludes() {
+        let dir = tempfile::tempdir().unwrap();
+        let codex = hosts::by_id("codex").unwrap();
+        // An earlier binary held only `<control>/<id>/hooks.lock`.
+        std::fs::create_dir_all(dir.path().join("codex")).unwrap();
+        let legacy = private_file(&dir.path().join("codex/hooks.lock")).unwrap();
+        fs2::FileExt::try_lock_exclusive(&legacy).unwrap();
+        let blocked = Session::lock_in(codex, dir.path(), &input("SessionEnd", "cx"));
+        assert!(blocked.is_err());
+        drop(legacy);
+        Session::lock_in(codex, dir.path(), &input("SessionEnd", "cx")).unwrap();
+    }
+
+    #[test]
+    fn session_end_that_cannot_lock_still_removes_its_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let workbuddy = hosts::by_id("workbuddy").unwrap();
+        let codex = hosts::by_id("codex").unwrap();
+        let marker = Session::lock_in(codex, dir.path(), &input("Stop", "cx"))
+            .unwrap()
+            .checked
+            .unwrap();
+        private_file(&marker).unwrap();
+        let other = Session::lock_in(codex, dir.path(), &input("Stop", "other"))
+            .unwrap()
+            .checked
+            .unwrap();
+        private_file(&other).unwrap();
+
+        let held = Session::lock_in(workbuddy, dir.path(), &input("Stop", "wb")).unwrap();
+        assert!(Session::lock_in(codex, dir.path(), &input("SessionEnd", "cx")).is_err());
+        assert!(!marker.exists());
+        assert!(
+            other.exists(),
+            "only the ending session's marker is removed"
+        );
+        drop(held);
     }
 
     #[test]

@@ -102,7 +102,7 @@ wrapper 固定读取同一份配置和密钥，并清除可能导致分库或误
 | `--data-root <dir>` | 记忆数据目录；重复安装默认沿用原值 |
 | `--binary <path>` | 使用现有可执行文件，跳过 Cargo 构建 |
 | `--non-interactive` | 缺少配置时退出，不询问输入 |
-| `--rollback [backup-dir]` | 恢复最近一次或指定安装前的文件 |
+| `--rollback [backup-dir]` | 恢复最近一次或指定安装前的文件；Codex 安装仍有效时保留共用的二进制和 `model.env` |
 | `--mock` | 显式离线演示，不能替代真实记忆模型 |
 
 旧入口 `examples/workbuddy/install_workbuddy.sh` 转发到同一实现。旧脚本的 `--with-hooks` 已不需要，
@@ -184,7 +184,8 @@ Android 和记忆引擎保持原行为。升级旧安装时重新执行安装脚
 
 成功检查后，同一 session 的后续提问不会重复强制 flush；SessionEnd 会清除该检查标记，
 恢复这个 session 时可以重新检查。标记保存在对应工作目录数据下的 `control/workbuddy/`，锁为同目录上一级的 `control/hooks.lock`
-（同一工作目录的所有宿主共用，WorkBuddy 与 Codex 的 hooks 互相串行），不包含对话正文。检查、flush 或状态保存失败时写 stderr 并放行聊天；未完成的检查会在后续提问重试。
+（同一工作目录的所有宿主共用，WorkBuddy 与 Codex 的 hooks 互相串行），另加旧版使用的 `control/workbuddy/hooks.lock`，
+使升级时仍在运行的旧 hook 同样被串行，不包含对话正文。检查、flush 或状态保存失败时写 stderr 并放行聊天；未完成的检查会在后续提问重试。
 此策略只处理已经捕获的内容，不会提前读取仍在运行的其他会话尚未生成的回复。
 
 hook 输入使用 snake_case，输出遵循宿主协议：
