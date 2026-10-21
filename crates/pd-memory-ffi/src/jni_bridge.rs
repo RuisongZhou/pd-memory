@@ -197,7 +197,7 @@ pub extern "system" fn Java_com_pilotdeck_memory_PdMemoryBridge_lastError(
     _class: JClass,
     handle: jlong,
 ) -> jstring {
-    let message = match catch_unwind(AssertUnwindSafe(|| {
+    let message = catch_unwind(AssertUnwindSafe(|| {
         if handle == 0 {
             thread_last_error()
         } else {
@@ -206,10 +206,8 @@ pub extern "system" fn Java_com_pilotdeck_memory_PdMemoryBridge_lastError(
                 .last_error()
                 .unwrap_or_default()
         }
-    })) {
-        Ok(message) => message,
-        Err(_) => String::new(),
-    };
+    }))
+    .unwrap_or_default();
     new_jstring(&mut env, message)
 }
 

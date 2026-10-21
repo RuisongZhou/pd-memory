@@ -696,7 +696,7 @@ fn heartbeat_replays_failed_sessions_on_next_run() {
     assert_eq!(stats.errors.len(), 1);
     assert_eq!(store.candidates.len(), 1);
     assert_eq!(queue.pending_count(), 1);
-    assert_eq!(queue.records.lock().unwrap()[1].indexed, false);
+    assert!(!queue.records.lock().unwrap()[1].indexed);
 
     // Second run only replays the failed record.
     store.fail_session = None;

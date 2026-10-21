@@ -114,7 +114,7 @@ fn upsert_names_project_files_and_builds_manifest() {
         .expect("list");
     assert_eq!(entries.len(), 1);
     let records = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .expect("records");
     assert_eq!(records.len(), 1);
     assert!(records[0].content.starts_with("## Summary"));
@@ -172,7 +172,7 @@ fn same_origin_overwrites_the_same_file_without_merging_fields() {
         .expect("list");
     assert_eq!(entries.len(), 1, "no duplicate file");
     let records = store
-        .get_records(&[first.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&first.relative_path), 80)
         .expect("records");
     assert_eq!(records[0].content, "## Summary\n\n第二版正文");
 
@@ -259,15 +259,15 @@ fn get_records_truncates_and_previews() {
         .join("\n");
     let entry = store.upsert_candidate(&candidate).unwrap();
     let truncated = store
-        .get_records(&[entry.relative_path.clone()], 3)
+        .get_records(std::slice::from_ref(&entry.relative_path), 3)
         .unwrap();
     assert_eq!(truncated[0].content, "line 1\nline 2\nline 3\n...");
     let full = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert_eq!(full[0].content.lines().count(), 10);
     let none = store
-        .get_records(&[entry.relative_path.clone()], 0)
+        .get_records(std::slice::from_ref(&entry.relative_path), 0)
         .unwrap();
     assert!(none[0].content.is_empty());
     assert_eq!(
@@ -322,7 +322,7 @@ fn edit_deprecate_restore_delete() {
     assert_eq!(edited.frontmatter.description, "second");
     // Body is preserved when no fields are supplied.
     let record = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert!(record[0].content.contains("## Current Stage"));
 
@@ -340,14 +340,14 @@ fn edit_deprecate_restore_delete() {
         )
         .expect("edit fields");
     let record = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert!(record[0].content.contains("## Current Stage\n已上线"));
     assert!(record[0].content.contains("## Decisions\n- 只做本地"));
 
     assert_eq!(
         store
-            .set_deprecated(&[entry.relative_path.clone()], true)
+            .set_deprecated(std::slice::from_ref(&entry.relative_path), true)
             .unwrap(),
         1
     );
@@ -369,7 +369,7 @@ fn edit_deprecate_restore_delete() {
     assert!(manifest.contains("## Deprecated"));
     assert_eq!(
         store
-            .set_deprecated(&[entry.relative_path.clone()], false)
+            .set_deprecated(std::slice::from_ref(&entry.relative_path), false)
             .unwrap(),
         1
     );
@@ -381,7 +381,7 @@ fn edit_deprecate_restore_delete() {
 
     assert_eq!(
         store
-            .delete_entries(&[entry.relative_path.clone()])
+            .delete_entries(std::slice::from_ref(&entry.relative_path))
             .unwrap(),
         1
     );

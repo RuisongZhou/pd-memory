@@ -287,10 +287,7 @@ fn strip_injected_memory_context(text: &str) -> String {
 /// footer (the reference uses the `g` flag; we loop for parity).
 fn remove_between_spans(text: &str, header: &str, footer: &str) -> String {
     let mut result = text.to_string();
-    loop {
-        let Some(start) = result.find(header) else {
-            break;
-        };
+    while let Some(start) = result.find(header) {
         let search_from = start + header.len();
         let Some(footer_offset) = result[search_from..].find(footer) else {
             break;
@@ -305,10 +302,7 @@ fn remove_between_spans(text: &str, header: &str, footer: &str) -> String {
 
 fn remove_recall_context_block(text: &str) -> String {
     let mut result = text.to_string();
-    loop {
-        let Some(start) = result.find(RECALL_CONTEXT_HEADER) else {
-            break;
-        };
+    while let Some(start) = result.find(RECALL_CONTEXT_HEADER) {
         let Some(instruction_offset) = result[start..].find(RECALL_CONTEXT_INSTRUCTION) else {
             break;
         };
@@ -340,10 +334,7 @@ fn extract_current_message_segment(text: &str) -> String {
 fn strip_quoted_context_blocks(text: &str) -> String {
     let mut cleaned = text.to_string();
     for marker in ["Chat history since last reply", "Replied message"] {
-        loop {
-            let Some(start) = find_ci(&cleaned, marker, 0) else {
-                break;
-            };
+        while let Some(start) = find_ci(&cleaned, marker, 0) {
             let Some(removed) = quoted_context_span(&cleaned, start, marker.len()) else {
                 break;
             };
@@ -351,10 +342,7 @@ fn strip_quoted_context_blocks(text: &str) -> String {
         }
     }
     // `[Chat messages since your last reply - for context] ... [Current message...]`
-    loop {
-        let Some(start) = cleaned.find(QUOTED_HISTORY_MARKER) else {
-            break;
-        };
+    while let Some(start) = cleaned.find(QUOTED_HISTORY_MARKER) {
         let after_marker = start + QUOTED_HISTORY_MARKER.len();
         let end = match cleaned[after_marker..].find(CURRENT_MESSAGE_MARKER) {
             Some(offset) => after_marker + offset,
@@ -412,10 +400,7 @@ fn strip_attachment_scaffolding(text: &str) -> String {
     }
     // Remove `<file ...>` tags (case-insensitive, tag ends at the first `>`).
     let mut search_from = 0;
-    loop {
-        let Some(start) = find_ci(&cleaned, "<file", search_from) else {
-            break;
-        };
+    while let Some(start) = find_ci(&cleaned, "<file", search_from) {
         let after = start + "<file".len();
         let is_word_boundary = cleaned[after..]
             .chars()
@@ -976,9 +961,7 @@ fn strip_assistant_thinking(text: &str) -> String {
                     .iter()
                     .any(|marker| first.contains(marker)));
         if meta_reasoning {
-            return strip_plugin_state_scaffolding(
-                &paragraphs[1..].join("\n\n").trim().to_string(),
-            );
+            return strip_plugin_state_scaffolding(paragraphs[1..].join("\n\n").trim());
         }
     }
     strip_plugin_state_scaffolding(&normalized)
@@ -987,10 +970,7 @@ fn strip_assistant_thinking(text: &str) -> String {
 /// Remove `<name ...> ... </name>` pairs (case-insensitive).
 fn remove_tag_pair(text: &str, name: &str) -> String {
     let mut result = text.to_string();
-    loop {
-        let Some(open_start) = find_tag_start(&result, name) else {
-            break;
-        };
+    while let Some(open_start) = find_tag_start(&result, name) {
         // Closing tags are handled by `remove_simple_tag`.
         if result[open_start..].starts_with("</") {
             break;
@@ -1015,10 +995,7 @@ fn remove_tag_pair(text: &str, name: &str) -> String {
 
 fn remove_simple_tag(text: &str, name: &str) -> String {
     let mut result = text.to_string();
-    loop {
-        let Some(start) = find_tag_start(&result, name) else {
-            break;
-        };
+    while let Some(start) = find_tag_start(&result, name) {
         let after_name = start + tag_prefix_len(&result[start..], name) + name.len();
         let Some(close) = result[after_name..].find('>') else {
             break;

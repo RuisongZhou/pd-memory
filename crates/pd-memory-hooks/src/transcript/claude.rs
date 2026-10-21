@@ -31,7 +31,7 @@ pub(crate) fn record_to_message(value: &Value) -> Option<MemoryMessage> {
         .or_else(|| object.get("role"))
         .and_then(Value::as_str)
         .map(normalize_role)
-        .or_else(|| match record_type {
+        .or(match record_type {
             "user" | "human" => Some("user"),
             "assistant" | "ai" => Some("assistant"),
             _ => None,

@@ -2020,7 +2020,7 @@ fn parse_paragraph_section(lines: Option<&[String]>) -> String {
     let Some(lines) = lines else {
         return String::new();
     };
-    normalize_whitespace(&lines.join(" ").trim())
+    normalize_whitespace(lines.join(" ").trim())
 }
 
 fn parse_fact_section(lines: Option<&[String]>) -> Vec<String> {
@@ -2268,13 +2268,11 @@ fn unique_strings(values: &[String]) -> Vec<String> {
     result
 }
 
-fn first_non_empty<'a>(values: &[Option<&'a str>]) -> String {
-    for value in values {
-        if let Some(value) = value {
-            let normalized = normalize_whitespace(value);
-            if !normalized.is_empty() {
-                return normalized;
-            }
+fn first_non_empty(values: &[Option<&str>]) -> String {
+    for value in values.iter().flatten() {
+        let normalized = normalize_whitespace(value);
+        if !normalized.is_empty() {
+            return normalized;
         }
     }
     String::new()

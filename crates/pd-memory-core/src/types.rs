@@ -10,11 +10,12 @@ use serde::{Deserialize, Serialize};
 pub type Timestamp = String;
 
 /// Kind of a memory note. Serialized as `snake_case` in frontmatter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryRecordType {
     User,
     Feedback,
+    #[default]
     Project,
     GeneralProjectMeta,
 }
@@ -52,10 +53,11 @@ impl MemoryRecordType {
 
 /// Memory scope. `user` notes are always `global`; project/feedback are
 /// `project` scoped.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
     Global,
+    #[default]
     Project,
 }
 
@@ -69,19 +71,14 @@ impl MemoryScope {
 }
 
 /// Retrieval route decided by the memory gate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryRoute {
+    #[default]
     None,
     User,
     Project,
     Mix,
-}
-
-impl Default for MemoryRoute {
-    fn default() -> Self {
-        MemoryRoute::None
-    }
 }
 
 impl MemoryRoute {
@@ -257,18 +254,6 @@ pub struct MemoryCandidate {
     pub notes: Vec<String>,
 }
 
-impl Default for MemoryRecordType {
-    fn default() -> Self {
-        MemoryRecordType::Project
-    }
-}
-
-impl Default for MemoryScope {
-    fn default() -> Self {
-        MemoryScope::Project
-    }
-}
-
 /// Editable structured fields of an existing memory entry.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -360,30 +345,20 @@ impl Default for IndexingSettings {
 }
 
 /// How much of a session is captured on every turn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureStrategy {
+    #[default]
     LastTurn,
     FullSession,
 }
 
-impl Default for CaptureStrategy {
-    fn default() -> Self {
-        CaptureStrategy::LastTurn
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkspaceMode {
+    #[default]
     Single,
     General,
-}
-
-impl Default for WorkspaceMode {
-    fn default() -> Self {
-        WorkspaceMode::Single
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -627,6 +602,9 @@ pub enum ClearMemoryScope {
 // Actions (UI / MCP administration surface)
 // ---------------------------------------------------------------------------
 
+// Built once per admin action, so the size gap between variants costs nothing;
+// boxing `EditEntry` fields would change the public constructor shape.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum MemoryActionRequest {

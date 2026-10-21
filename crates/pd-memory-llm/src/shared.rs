@@ -276,8 +276,10 @@ mod tests {
 
     #[test]
     fn timeout_falls_back_to_provider_config() {
-        let mut config = ModelConfig::default();
-        config.timeout_ms = 2500;
+        let config = ModelConfig {
+            timeout_ms: 2500,
+            ..Default::default()
+        };
         assert_eq!(
             request_timeout(&request_with_timeout(Duration::ZERO), &config),
             Duration::from_millis(2500)
