@@ -127,6 +127,8 @@ impl RecallCache {
 ///
 /// `cache` is the engine-owned recall cache; it is locked internally for the
 /// duration of a lookup/insert only, never across a model call.
+// The engine passes each port separately; bundling them would only move the list.
+#[allow(clippy::too_many_arguments)]
 pub fn retrieve(
     config: &MemoryConfig,
     store: &dyn MemoryStore,

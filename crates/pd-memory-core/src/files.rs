@@ -72,6 +72,9 @@ const DEFAULT_PROJECT_STATUS: &str = "in_progress";
 const DEFAULT_USER_PROFILE_NAME: &str = "user-profile";
 const PREVIEW_MAX_CHARS: usize = 220;
 const UNIQUE_STRINGS_MAX: usize = 50;
+/// Longest file name, in bytes, that Linux and Android filesystems (ext4,
+/// f2fs) accept. A CJK character takes 3 bytes, so long CJK names hit it.
+const MAX_FILE_NAME_BYTES: usize = 255;
 
 /// Markdown-backed [`MemoryStore`].
 #[derive(Debug)]
@@ -548,10 +551,9 @@ impl FileMemoryStore {
                         .unwrap_or_else(|| now.clone())
                 );
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     USER_NOTES_DIR,
-                    slugify(&name),
-                    hash10(&seed)
+                    bounded_file_name(&slugify(&name), &format!("-{}.md", hash10(&seed)))
                 ))
             }
             MemoryRecordType::Feedback | MemoryRecordType::Project => {
@@ -573,10 +575,9 @@ impl FileMemoryStore {
                         .unwrap_or_else(|| now.clone())
                 );
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     directory,
-                    slugify(&name),
-                    hash10(&seed)
+                    bounded_file_name(&slugify(&name), &format!("-{}.md", hash10(&seed)))
                 ))
             }
             MemoryRecordType::GeneralProjectMeta => {
@@ -589,10 +590,9 @@ impl FileMemoryStore {
                     project_id.chars().take(12).collect()
                 };
                 Ok(format!(
-                    "{}/{}-{}.md",
+                    "{}/{}",
                     GENERAL_PROJECTS_DIR,
-                    slugify(&name),
-                    short_id
+                    bounded_file_name(&slugify(&name), &format!("-{short_id}.md"))
                 ))
             }
         }
@@ -2020,7 +2020,7 @@ fn parse_paragraph_section(lines: Option<&[String]>) -> String {
     let Some(lines) = lines else {
         return String::new();
     };
-    normalize_whitespace(&lines.join(" ").trim())
+    normalize_whitespace(lines.join(" ").trim())
 }
 
 fn parse_fact_section(lines: Option<&[String]>) -> Vec<String> {
@@ -2268,13 +2268,11 @@ fn unique_strings(values: &[String]) -> Vec<String> {
     result
 }
 
-fn first_non_empty<'a>(values: &[Option<&'a str>]) -> String {
-    for value in values {
-        if let Some(value) = value {
-            let normalized = normalize_whitespace(value);
-            if !normalized.is_empty() {
-                return normalized;
-            }
+fn first_non_empty(values: &[Option<&str>]) -> String {
+    for value in values.iter().flatten() {
+        let normalized = normalize_whitespace(value);
+        if !normalized.is_empty() {
+            return normalized;
         }
     }
     String::new()
@@ -2358,7 +2356,31 @@ fn unique_sibling(path: &Path, tag: &str) -> PathBuf {
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_else(|| "memory".to_string());
-    path.with_file_name(format!(".{name}.{tag}-{}", unique_id()))
+    // The target name may already be close to the limit; shorten the copy of
+    // it so the sibling stays creatable.
+    let suffix = format!(".{tag}-{}", unique_id());
+    let budget = MAX_FILE_NAME_BYTES.saturating_sub(1 + suffix.len());
+    path.with_file_name(format!(".{}{suffix}", truncate_bytes(&name, budget)))
+}
+
+/// `<slug><suffix>`, with the slug cut so the name fits in
+/// [`MAX_FILE_NAME_BYTES`]. Names that already fit are unchanged.
+fn bounded_file_name(slug: &str, suffix: &str) -> String {
+    let budget = MAX_FILE_NAME_BYTES.saturating_sub(suffix.len());
+    let slug = truncate_bytes(slug, budget).trim_end_matches('-');
+    format!("{slug}{suffix}")
+}
+
+/// Cut `value` to at most `max_bytes` bytes on a character boundary.
+fn truncate_bytes(value: &str, max_bytes: usize) -> &str {
+    if value.len() <= max_bytes {
+        return value;
+    }
+    let mut end = max_bytes;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
@@ -2374,4 +2396,32 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
         return Err(MemoryError::io(path, error));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_bytes_backs_off_to_a_character_boundary() {
+        assert_eq!(truncate_bytes("abc", 5), "abc");
+        // "长" is 3 bytes: a 4-byte budget keeps one character, not a fragment.
+        assert_eq!(truncate_bytes("长长", 4), "长");
+        assert_eq!(truncate_bytes("长", 2), "");
+    }
+
+    #[test]
+    fn bounded_file_name_keeps_fitting_names_and_trims_a_dangling_dash() {
+        assert_eq!(
+            bounded_file_name("boreal", "-0123456789.md"),
+            "boreal-0123456789.md"
+        );
+        let suffix = "-0123456789.md";
+        let budget = MAX_FILE_NAME_BYTES - suffix.len();
+        // The cut lands right after a '-', which must not double up with the suffix.
+        let slug = format!("{}-{}", "a".repeat(budget - 1), "b".repeat(10));
+        let name = bounded_file_name(&slug, suffix);
+        assert_eq!(name, format!("{}{suffix}", "a".repeat(budget - 1)));
+        assert!(name.len() <= MAX_FILE_NAME_BYTES);
+    }
 }

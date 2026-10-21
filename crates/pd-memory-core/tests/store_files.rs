@@ -114,11 +114,58 @@ fn upsert_names_project_files_and_builds_manifest() {
         .expect("list");
     assert_eq!(entries.len(), 1);
     let records = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .expect("records");
     assert_eq!(records.len(), 1);
     assert!(records[0].content.starts_with("## Summary"));
     assert!(records[0].preview.starts_with("Summary"));
+}
+
+#[test]
+fn long_cjk_names_fit_the_file_name_limit() {
+    // A CJK character is 3 bytes; Linux/Android file names stop at 255 bytes.
+    let (_dir, mut store) = make_store();
+
+    // 80 characters (the extraction cap): the slug fits as-is (254-byte file
+    // name), but the atomic-write temp sibling must not exceed the limit.
+    let at_cap = "长".repeat(80);
+    let first = store
+        .upsert_candidate(&project_candidate(&at_cap, "八十字名称"))
+        .expect("upsert an 80-character CJK name");
+    let prefix = format!("Project/{at_cap}-");
+    assert_eq!(hex10_suffix(&first, &prefix).len(), 10);
+    assert_eq!(first.frontmatter.name, at_cap);
+
+    // 120 characters (the Dream cap): the 360-byte slug is cut on a character
+    // boundary to 80 characters so the file name fits; the name is kept. A
+    // distinct origin makes this a new file rather than a same-origin rewrite.
+    let over_cap = "长".repeat(120);
+    let mut candidate = project_candidate(&over_cap, "一百二十字名称");
+    candidate.source_session_key = Some("sess-dream".to_string());
+    let second = store
+        .upsert_candidate(&candidate)
+        .expect("upsert a 120-character CJK name");
+    assert_ne!(second.relative_path, first.relative_path);
+    let file_name = second.relative_path.rsplit('/').next().expect("file name");
+    assert!(
+        file_name.len() <= 255,
+        "{} bytes: {file_name}",
+        file_name.len()
+    );
+    assert_eq!(hex10_suffix(&second, &prefix).len(), 10);
+    assert_eq!(second.frontmatter.name, over_cap);
+    let raw = std::fs::read_to_string(&second.absolute_path).expect("read written file");
+    assert!(raw.contains("一百二十字名称"), "{raw}");
+    assert_eq!(
+        store
+            .list_entries(&MemoryListOptions {
+                kinds: vec![MemoryRecordType::Project],
+                ..Default::default()
+            })
+            .expect("list")
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -140,7 +187,7 @@ fn same_origin_overwrites_the_same_file_without_merging_fields() {
         .expect("list");
     assert_eq!(entries.len(), 1, "no duplicate file");
     let records = store
-        .get_records(&[first.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&first.relative_path), 80)
         .expect("records");
     assert_eq!(records[0].content, "## Summary\n\n第二版正文");
 
@@ -227,15 +274,15 @@ fn get_records_truncates_and_previews() {
         .join("\n");
     let entry = store.upsert_candidate(&candidate).unwrap();
     let truncated = store
-        .get_records(&[entry.relative_path.clone()], 3)
+        .get_records(std::slice::from_ref(&entry.relative_path), 3)
         .unwrap();
     assert_eq!(truncated[0].content, "line 1\nline 2\nline 3\n...");
     let full = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert_eq!(full[0].content.lines().count(), 10);
     let none = store
-        .get_records(&[entry.relative_path.clone()], 0)
+        .get_records(std::slice::from_ref(&entry.relative_path), 0)
         .unwrap();
     assert!(none[0].content.is_empty());
     assert_eq!(
@@ -290,7 +337,7 @@ fn edit_deprecate_restore_delete() {
     assert_eq!(edited.frontmatter.description, "second");
     // Body is preserved when no fields are supplied.
     let record = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert!(record[0].content.contains("## Current Stage"));
 
@@ -308,14 +355,14 @@ fn edit_deprecate_restore_delete() {
         )
         .expect("edit fields");
     let record = store
-        .get_records(&[entry.relative_path.clone()], 80)
+        .get_records(std::slice::from_ref(&entry.relative_path), 80)
         .unwrap();
     assert!(record[0].content.contains("## Current Stage\n已上线"));
     assert!(record[0].content.contains("## Decisions\n- 只做本地"));
 
     assert_eq!(
         store
-            .set_deprecated(&[entry.relative_path.clone()], true)
+            .set_deprecated(std::slice::from_ref(&entry.relative_path), true)
             .unwrap(),
         1
     );
@@ -337,7 +384,7 @@ fn edit_deprecate_restore_delete() {
     assert!(manifest.contains("## Deprecated"));
     assert_eq!(
         store
-            .set_deprecated(&[entry.relative_path.clone()], false)
+            .set_deprecated(std::slice::from_ref(&entry.relative_path), false)
             .unwrap(),
         1
     );
@@ -349,7 +396,7 @@ fn edit_deprecate_restore_delete() {
 
     assert_eq!(
         store
-            .delete_entries(&[entry.relative_path.clone()])
+            .delete_entries(std::slice::from_ref(&entry.relative_path))
             .unwrap(),
         1
     );

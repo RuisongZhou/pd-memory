@@ -783,10 +783,8 @@ pub(crate) fn conversation_turns(messages: &[MemoryMessage]) -> Vec<Vec<MemoryMe
                 }
                 current.push(message.clone());
             }
-            "assistant" => {
-                if !current.is_empty() {
-                    current.push(message.clone());
-                }
+            "assistant" if !current.is_empty() => {
+                current.push(message.clone());
             }
             _ => {}
         }

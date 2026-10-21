@@ -282,8 +282,10 @@ mod tests {
 
     #[test]
     fn supports_extra_patterns_and_disable() {
-        let mut config = RedactionConfig::default();
-        config.extra_patterns = vec!["内部代号".to_string()];
+        let config = RedactionConfig {
+            extra_patterns: vec!["内部代号".to_string()],
+            ..Default::default()
+        };
         let redactor = DefaultRedactor::new(config);
         assert_eq!(redactor.redact("这是内部代号项目"), "这是[REDACTED]项目");
         let disabled = DefaultRedactor::new(RedactionConfig {

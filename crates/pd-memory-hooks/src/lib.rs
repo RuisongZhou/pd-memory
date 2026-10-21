@@ -377,7 +377,7 @@ mod tests {
         };
         let raw = render_output(&output);
         let parsed: HookOutput = serde_json::from_str(raw.trim()).expect("roundtrip");
-        assert_eq!(parsed.r#continue, true);
+        assert!(parsed.r#continue);
         assert_eq!(parsed.system_message.as_deref(), Some("note"));
         assert_eq!(
             parsed.additional_context(),

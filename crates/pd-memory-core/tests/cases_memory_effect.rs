@@ -77,13 +77,13 @@ impl FixedClock {
     /// 模拟会话之间时间流逝（只影响 injected clock，不影响文件系统 wall clock）。
     fn advance_minutes(&self, minutes: i64) {
         let mut now = self.now.lock().expect("fixed clock mutex");
-        *now = now.clone() + Duration::minutes(minutes);
+        *now += Duration::minutes(minutes);
     }
 }
 
 impl Clock for FixedClock {
     fn now(&self) -> DateTime<Utc> {
-        self.now.lock().expect("fixed clock mutex").clone()
+        *self.now.lock().expect("fixed clock mutex")
     }
 }
 

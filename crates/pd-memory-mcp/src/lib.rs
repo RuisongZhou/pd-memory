@@ -698,7 +698,7 @@ mod tests {
         let input = format!(
             "{}\n{}\n\n{}\n",
             request(20, "initialize", json!({"protocolVersion": "2025-06-18"})),
-            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}).to_string(),
+            json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
             request(21, "tools/list", json!({})),
         );
         let reader = Cursor::new(input.into_bytes());

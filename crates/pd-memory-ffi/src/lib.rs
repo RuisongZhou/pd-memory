@@ -302,17 +302,15 @@ pub unsafe extern "C" fn pd_memory_call(
 /// `handle` must be `NULL` or a live handle from [`pd_memory_new`].
 #[no_mangle]
 pub unsafe extern "C" fn pd_memory_last_error(handle: *mut PdMemoryHandle) -> *mut c_char {
-    let message = match catch_unwind(AssertUnwindSafe(|| {
+    let message = catch_unwind(AssertUnwindSafe(|| {
         if handle.is_null() {
             thread_last_error()
         } else {
             // SAFETY: caller contract guarantees a live handle.
             unsafe { (*handle).last_error() }.unwrap_or_default()
         }
-    })) {
-        Ok(message) => message,
-        Err(_) => String::new(),
-    };
+    }))
+    .unwrap_or_default();
     c_string(message)
 }
 
