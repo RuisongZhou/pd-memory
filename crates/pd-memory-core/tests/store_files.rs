@@ -129,28 +129,43 @@ fn long_cjk_names_fit_the_file_name_limit() {
     // 80 characters (the extraction cap): the slug fits as-is (254-byte file
     // name), but the atomic-write temp sibling must not exceed the limit.
     let at_cap = "长".repeat(80);
-    let entry = store
+    let first = store
         .upsert_candidate(&project_candidate(&at_cap, "八十字名称"))
         .expect("upsert an 80-character CJK name");
     let prefix = format!("Project/{at_cap}-");
-    assert_eq!(hex10_suffix(&entry, &prefix).len(), 10);
-    assert_eq!(entry.frontmatter.name, at_cap);
+    assert_eq!(hex10_suffix(&first, &prefix).len(), 10);
+    assert_eq!(first.frontmatter.name, at_cap);
 
-    // 120 characters (the Dream cap): the slug is cut to fit, the name is kept.
+    // 120 characters (the Dream cap): the 360-byte slug is cut on a character
+    // boundary to 80 characters so the file name fits; the name is kept. A
+    // distinct origin makes this a new file rather than a same-origin rewrite.
     let over_cap = "长".repeat(120);
-    let entry = store
-        .upsert_candidate(&project_candidate(&over_cap, "一百二十字名称"))
+    let mut candidate = project_candidate(&over_cap, "一百二十字名称");
+    candidate.source_session_key = Some("sess-dream".to_string());
+    let second = store
+        .upsert_candidate(&candidate)
         .expect("upsert a 120-character CJK name");
-    let file_name = entry.relative_path.rsplit('/').next().expect("file name");
+    assert_ne!(second.relative_path, first.relative_path);
+    let file_name = second.relative_path.rsplit('/').next().expect("file name");
     assert!(
         file_name.len() <= 255,
         "{} bytes: {file_name}",
         file_name.len()
     );
-    assert_eq!(hex10_suffix(&entry, &prefix).len(), 10);
-    assert_eq!(entry.frontmatter.name, over_cap);
-    let raw = std::fs::read_to_string(&entry.absolute_path).expect("read written file");
+    assert_eq!(hex10_suffix(&second, &prefix).len(), 10);
+    assert_eq!(second.frontmatter.name, over_cap);
+    let raw = std::fs::read_to_string(&second.absolute_path).expect("read written file");
     assert!(raw.contains("一百二十字名称"), "{raw}");
+    assert_eq!(
+        store
+            .list_entries(&MemoryListOptions {
+                kinds: vec![MemoryRecordType::Project],
+                ..Default::default()
+            })
+            .expect("list")
+            .len(),
+        2
+    );
 }
 
 #[test]

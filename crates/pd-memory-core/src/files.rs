@@ -2397,3 +2397,31 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_bytes_backs_off_to_a_character_boundary() {
+        assert_eq!(truncate_bytes("abc", 5), "abc");
+        // "长" is 3 bytes: a 4-byte budget keeps one character, not a fragment.
+        assert_eq!(truncate_bytes("长长", 4), "长");
+        assert_eq!(truncate_bytes("长", 2), "");
+    }
+
+    #[test]
+    fn bounded_file_name_keeps_fitting_names_and_trims_a_dangling_dash() {
+        assert_eq!(
+            bounded_file_name("boreal", "-0123456789.md"),
+            "boreal-0123456789.md"
+        );
+        let suffix = "-0123456789.md";
+        let budget = MAX_FILE_NAME_BYTES - suffix.len();
+        // The cut lands right after a '-', which must not double up with the suffix.
+        let slug = format!("{}-{}", "a".repeat(budget - 1), "b".repeat(10));
+        let name = bounded_file_name(&slug, suffix);
+        assert_eq!(name, format!("{}{suffix}", "a".repeat(budget - 1)));
+        assert!(name.len() <= MAX_FILE_NAME_BYTES);
+    }
+}
