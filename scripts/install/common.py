@@ -5,10 +5,12 @@ its paths, MCP merge, hooks merge, checks and post-install notes; this module
 owns everything else. Entry point: `scripts/install.sh --host <id>`
 (`install.py`).
 
-Host module interface (see hosts/workbuddy.py for a complete example):
+Host module interface (see hosts/workbuddy.py for a complete example). The
+module for host id `<id>` is `hosts/<id with - replaced by _>.py`:
 
     ID, LABEL, DESCRIPTION, WORKSPACE_HELP
-    HOOK_ARGS            CLI arguments the hooks run, e.g. ["hook", "--codex"]
+    HOOK_ARGS            CLI arguments the hooks run, e.g. ["hook", "--codex"];
+                         None for an MCP-only host (no hooks installed)
     STATE_SUBDIR         backup directory under installations/ (None: shared root)
     CONFIG_NAME          private config file name under ~/.config/pd-memory
     WRAPPER_NAME         wrapper script name next to the binary
@@ -19,7 +21,7 @@ Host module interface (see hosts/workbuddy.py for a complete example):
     managed_files(args, paths)         host files this installation edits
     load_config(paths)                 current private config (dict)
     default_workspace(args, paths)     workspace when none is configured, or None
-    integration_changes(args, paths)   [(path, bytes, mode)] for MCP + hooks
+    integration_changes(args, paths)   [(path, bytes, mode)] for MCP (+ hooks)
     verify(args, paths, planned)       post-install checks; raise InstallError
     post_install(args)                 print what the user must do next
     uninstall(args, paths)             optional; enables --uninstall
@@ -46,7 +48,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
-HOSTS = ("workbuddy", "codex")
+HOSTS = ("workbuddy", "codex", "deepseek-harness")
 TOOLS = {
     "memory_add", "memory_dream", "memory_flush", "memory_get",
     "memory_list", "memory_overview", "memory_search",
@@ -461,7 +463,7 @@ def installation_lock(state):
 def load_host(host_id):
     if host_id not in HOSTS:
         raise InstallError(f"Unknown host {host_id!r}; choose one of: {', '.join(HOSTS)}")
-    return importlib.import_module(f"hosts.{host_id}")
+    return importlib.import_module("hosts." + host_id.replace("-", "_"))
 
 
 def arguments(argv=None):

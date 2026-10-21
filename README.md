@@ -8,6 +8,38 @@ MCP stdio、Agent 生命周期 hooks 和 Android C ABI / JNI 接口。当前功�
 随后由模型提取记忆；召回经过模型 gate、manifest 文件选择和正文读取。Dream 在暂存副本上
 整理记忆，提交后可以回滚。无需额外部署数据库、向量库或 HTTP 服务。
 
+## 一键安装
+
+目前支持三个 Agent 宿主，安装入口都是 `scripts/install.sh --host <id>`。一条命令完成构建、写入配置，
+并在临时目录里验收；任何一步失败都会自动恢复原文件。三者都能一键安装，但**接入深度不同**：
+DeepSeek Harness 目前只有 MCP 工具，没有自动捕获和自动召回。
+
+先安装 Rust stable / Cargo 和 Python 3.9+（Codex 需要 3.11+），然后在仓库根目录执行对应命令：
+
+| 宿主 | 接入方式 | 命令 | 安装后还需手动做 |
+|---|---|---|---|
+| WorkBuddy / CodeBuddy | MCP + hooks：自动捕获、自动召回 | `bash scripts/install.sh --host workbuddy --apply --verify-model` | 重启，在自定义连接器中「信任」pd-memory |
+| Codex CLI / App | MCP + hooks：自动捕获、自动召回 | `bash scripts/install.sh --host codex --apply --verify-model --workspace /absolute/path/to/project` | 在 `/hooks`（App：Settings → Hooks）中信任四个 hooks |
+| DeepSeek Harness | 仅 MCP 工具，由模型主动调用 | `bash scripts/install.sh --host deepseek-harness --apply --verify-model --workspace /absolute/path/to/project` | 重启应用，新建会话 |
+
+首次运行会询问模型名、服务前缀地址和 API key（密钥输入不回显），之后各宿主复用同一份模型配置、密钥和数据目录。
+WorkBuddy 默认绑定 `~/.workbuddy/workspace`；Codex 和 DeepSeek Harness 首次安装必须传 `--workspace`，
+多个宿主传同一个目录即可共享同一份项目记忆。
+
+所有宿主都支持 `--dry-run`（只预览，不编译、不写文件、不调用模型）、`--rollback`（恢复安装前的文件，保留记忆数据）
+和 `--non-interactive`；Codex 和 DeepSeek Harness 另有 `--uninstall`。目前只提供 macOS / Linux 脚本，
+没有 Windows 版本。
+
+验证程度也不一样（阶梯定义见[宿主接入范式](docs/hosts/playbook.md#6-验证阶梯)）：
+
+- WorkBuddy：在 macOS / WorkBuddy 5.8.3 GUI 中完成真实会话验收，GUI 中的 SessionEnd 未观察到。
+- Codex：真实 Codex CLI（0.154.0、0.163.0）能解析安装结果并保留信任状态；维护者尚未记录真实模型和真实会话的验收
+  （`--verify-model` 会在你本机跑一遍真实模型）。
+- DeepSeek Harness：桌面版 0.2.1-rc.2 运行时能拉起服务并注册七个工具，真实模型走通 add → flush → search；
+  真实会话尚未验证。dsh 仍是开发者预览版，升级后需要重新运行安装器。
+
+各宿主的事件、超时与能力对照见 [接入宿主总览](docs/hosts/README.md)。
+
 ## 一键接入 WorkBuddy
 
 也可以把下面这段话直接发给 WorkBuddy Agent，让它执行仓库现有脚本：
@@ -67,9 +99,31 @@ bash scripts/install.sh --host workbuddy --rollback
 bash scripts/install.sh --host codex --apply --verify-model --workspace /absolute/path/to/project
 ```
 
+安装器只改 `~/.codex/config.toml` 中的 `[mcp_servers.pd-memory]` 和 `~/.codex/hooks.json`；
+`config.toml` 里已经定义 `[hooks]` 时会拒绝安装，避免两处 hooks 冲突（Codex 自己写入的
+`[hooks.state]` 信任记录除外，重复安装不受影响）。Codex 的会话结束 hook 最多 3 秒，
+因此会话结束时只捕获，积压由下一个会话的首次召回处理。
+
 详见 [Codex 安装与集成](docs/hosts/codex.md)。
 
-各宿主的事件、超时与能力对照，以及新增宿主的步骤，见 [接入宿主总览](docs/hosts/README.md)。
+## 接入 DeepSeek Harness
+
+目前只接入了 MCP 工具（七个 `memory_*` 工具，由模型主动调用）。dsh 自带的 hooks 桥拿不到 transcript，
+也没有会话结束事件，所以**没有自动捕获和自动召回**；让模型记住的内容要在调用 `memory_flush` 之后才能检索到。
+原因和后续的插件桥计划见 [为什么还没有自动捕获](docs/hosts/deepseek-harness.md#为什么还没有自动捕获)。
+
+```bash
+bash scripts/install.sh --host deepseek-harness --apply --verify-model --workspace /absolute/path/to/project
+```
+
+安装器在 `~/.dsh/cordis.patch.yml` 中写入一块带标记的 MCP 配置，块外的内容保持不变，再用 dsh 自己的
+`--dump-config` 校验改动前后的配置。安装后重启 DeepSeek Harness，新建会话，不需要人工信任。
+dsh 的数据目录不在默认位置时加 `--dsh-home`；找不到 dsh CLI 时可用 `--dsh-binary` 指定。
+
+详见 [DeepSeek Harness 接入](docs/hosts/deepseek-harness.md)。
+
+新增宿主的步骤见 [接入宿主总览](docs/hosts/README.md#新增宿主)；调研、定级、实现和验证新宿主的方法见
+[宿主接入范式](docs/hosts/playbook.md)。
 
 以下章节保留手动配置方法。
 
