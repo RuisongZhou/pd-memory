@@ -10,8 +10,10 @@ is the memory core in a separate PilotDeck checkout; see `upstream.json` and
   directory reads inside the engine.
 - Use atomic writes and staged directory replacement. Return errors, never panic
   in library code.
-- Android core/FFI default features must compile without an NDK; no process,
-  signals or SQLite dependency in that default graph.
+- Android core/FFI must build and run on Android. Building with the NDK (r26+,
+  via `cargo-ndk`) is fine, so dependencies that compile C/C++ are allowed; do
+  not spawn processes or install signal handlers in that graph.
+  `scripts/android-check.sh` needs an NDK toolchain once C code is in the graph.
 - `cargo test` must be deterministic and offline. Use injected models and temp dirs.
 - Preserve local user changes and never publish credentials or generated memory.
 

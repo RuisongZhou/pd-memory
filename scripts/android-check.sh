@@ -7,6 +7,11 @@
 # ureq -> rustls -> ring compiles C/asm and would need the NDK). Host `cargo
 # test -p pd-memory-ffi` exercises the same code paths natively.
 #
+# Building without the NDK is not a project requirement: Android support only
+# has to build and run with one. If a dependency that compiles C/C++ enters the
+# default graph, this check needs an NDK toolchain as well (cargo-ndk sets one
+# up); scripts/android-build.sh is the full build.
+#
 # Usage:  ./scripts/android-check.sh
 # Exit code: 0 only when all three target checks pass.
 #
