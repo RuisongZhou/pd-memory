@@ -143,7 +143,7 @@ cargo test --locked -p pd-memory-hooks -p pd-memory-cli
   只输出 `{"continue":true}`、SessionEnd 只捕获不 flush、新会话首次召回清空积压并注入上下文。
   模型为确定性 mock。
 - 安装器：TOML / hooks 合并、幂等、回退、卸载、失败自动回退；本机有 `codex` 时，由真实 Codex CLI
-  （0.154.0）解析安装结果，并验证模拟信任后重装的 hook key 和信任状态不变。
+  （0.154.0；2026-10-20 在 0.163.0 上重跑通过）解析安装结果，并验证模拟信任后重装的 hook key 和信任状态不变。
 - 本机真实数据：用 mock 模型对 8 个真实 Codex rollout 执行 `hook --codex`，每个会话捕获到一问一答，
   没有 AGENTS.md、环境上下文、技能或图片标记混入。
 

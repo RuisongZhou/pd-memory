@@ -141,18 +141,27 @@ class EntryPointTests(unittest.TestCase):
         for host_id in common.HOSTS:
             module = common.load_host(host_id)
             self.assertEqual(module.ID, host_id)
-            self.assertEqual(module.HOOK_ARGS[0], "hook")
-            self.assertEqual(set(module.EVENTS), {"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"})
+            if module.HOOK_ARGS is None:  # MCP-only host: no hooks to install
+                self.assertFalse(hasattr(module, "EVENTS"))
+            else:
+                self.assertEqual(module.HOOK_ARGS[0], "hook")
+                self.assertEqual(set(module.EVENTS), {"SessionStart", "UserPromptSubmit", "Stop", "SessionEnd"})
             result = self.run_entry("--host", host_id, "--help")
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("--apply", result.stdout)
-            self.assertIn("--rollback", result.stdout)
+            # Every host offers the same one-command install surface.
+            for option in ("--apply", "--dry-run", "--rollback", "--verify-model",
+                           "--non-interactive", "--workspace", "--binary"):
+                self.assertIn(option, result.stdout, f"{host_id} lacks {option}")
 
     def test_host_specific_options_stay_with_their_host(self):
         with tempfile.TemporaryDirectory() as home:
             result = self.run_entry("--host", "workbuddy", "--home", home, "--uninstall")
             self.assertEqual(result.returncode, 2)
             result = self.run_entry("--host", "codex", "--home", home, "--mcp-target", "gui")
+            self.assertEqual(result.returncode, 2)
+            result = self.run_entry("--host", "deepseek-harness", "--home", home, "--codex-home", home)
+            self.assertEqual(result.returncode, 2)
+            result = self.run_entry("--host", "codex", "--home", home, "--dsh-home", home)
             self.assertEqual(result.returncode, 2)
 
 

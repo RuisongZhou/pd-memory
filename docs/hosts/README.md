@@ -1,12 +1,15 @@
 # 接入宿主总览
 
 pd-memory 通过两条通道接入 Agent 宿主：stdio MCP（七个记忆工具）和 Claude Code 风格的命令 hooks
-（每个生命周期事件启动一次 `pd-memory hook --host <id>`）。宿主之间的差异集中在两处，每个宿主各一个文件：
+（每个生命周期事件启动一次 `pd-memory hook --host <id>`）。接入等级（L0 工具 / L1 自动召回 / L2 自动捕获），
+以及新宿主的调研、决策、实现和验证方法，见[宿主接入范式](playbook.md)。
+
+宿主之间的差异集中在两处，每个宿主各一个文件。没有可用命令 hooks 的宿主，另外需要一个插件桥，见范式第 1 节：
 
 | 层 | 位置 | 负责 |
 |---|---|---|
 | Rust 适配器 | `crates/pd-memory-hooks/src/hosts/<id>.rs` | 事件名映射、输出 schema、transcript 读取、`HostCaps` |
-| 安装器模块 | `scripts/install/hosts/<id>.py` | 配置路径、MCP 合并（JSON 或 TOML）、hooks 合并、安装后检查与提示 |
+| 安装器模块 | `scripts/install/hosts/<id>.py` | 配置路径、MCP 合并（JSON、TOML 或 YAML）、hooks 合并、安装后检查与提示 |
 
 其余部分与宿主无关：
 
@@ -51,21 +54,24 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 
 已实现：
 
-| | WorkBuddy / CodeBuddy | Codex CLI / App |
-|---|---|---|
-| 文档 | [workbuddy.md](workbuddy.md) | [codex.md](codex.md) |
-| hook 命令 | `hook --workbuddy`（= `--host workbuddy`） | `hook --codex`（= `--host codex`） |
-| 事件名 | Claude Code：SessionStart / UserPromptSubmit / Stop / SessionEnd / PreCompact | 同左 |
-| `end_budget_ms` | 300000（安装器设置的超时） | 3000（Codex 上限 3 秒，默认 1 秒） |
-| 会话结束 | 捕获 + 维护 + 清空积压 | 只捕获，积压由下个会话首次召回处理 |
-| `has_transcript` | 是 | 是（可能为 `null`） |
-| `inject_on` | Start、Recall | Start、Recall（输出 schema 禁止其他字段） |
-| transcript | `projects/<编码 cwd>/<会话>.jsonl`，GUI 用 `<system-reminder>…<user_query>` 包裹 | rollout `{timestamp,type,payload}`，过滤注入上下文 |
-| MCP 配置 | `~/.workbuddy/mcp.json`、`.mcp.json`（JSON `mcpServers`） | `~/.codex/config.toml`（TOML `[mcp_servers.pd-memory]`） |
-| hooks 配置 | `~/.workbuddy/settings.json`，追加分组 | `~/.codex/hooks.json`，原位替换（信任按位置记录） |
-| 需人工确认 | GUI 自定义连接器中信任 MCP | `/hooks` 或 Settings → Hooks 信任四个 hooks |
-| wrapper / 配置 | `pd-memory-workbuddy` / `config.json` | `pd-memory-codex` / `codex.json` |
-| 备份目录 | `installations/` | `installations/codex/` |
+| | WorkBuddy / CodeBuddy | Codex CLI / App | DeepSeek Harness |
+|---|---|---|---|
+| 接入等级 | L2 | L2 | L0（只有 MCP） |
+| 一键安装 | `scripts/install.sh --host workbuddy --apply --verify-model` | `scripts/install.sh --host codex --apply --verify-model --workspace <项目>` | `scripts/install.sh --host deepseek-harness --apply --verify-model --workspace <项目>` |
+| 文档 | [workbuddy.md](workbuddy.md) | [codex.md](codex.md) | [deepseek-harness.md](deepseek-harness.md) |
+| hook 命令 | `hook --workbuddy`（= `--host workbuddy`） | `hook --codex`（= `--host codex`） | 未接 hooks（规划为 `--host deepseek-harness`） |
+| 事件名 | Claude Code：SessionStart / UserPromptSubmit / Stop / SessionEnd / PreCompact | 同左 | — |
+| `end_budget_ms` | 300000（安装器设置的超时） | 3000（Codex 上限 3 秒，默认 1 秒） | — |
+| 会话结束 | 捕获 + 维护 + 清空积压 | 只捕获，积压由下个会话首次召回处理 | — |
+| `has_transcript` | 是 | 是（可能为 `null`） | —（dsh 自带的 hooks 桥恒为空） |
+| `inject_on` | Start、Recall | Start、Recall（输出 schema 禁止其他字段） | — |
+| transcript | `projects/<编码 cwd>/<会话>.jsonl`，GUI 用 `<system-reminder>…<user_query>` 包裹 | rollout `{timestamp,type,payload}`，过滤注入上下文 | zstd 压缩的会话日志，hook 读不到 |
+| MCP 配置 | `~/.workbuddy/mcp.json`、`.mcp.json`（JSON `mcpServers`） | `~/.codex/config.toml`（TOML `[mcp_servers.pd-memory]`） | `~/.dsh/cordis.patch.yml`（YAML 补丁行 `@deepseek-ai/dsh-mcp-client`，带标记的文本块） |
+| hooks 配置 | `~/.workbuddy/settings.json`，追加分组 | `~/.codex/hooks.json`，原位替换（信任按位置记录） | — |
+| 需人工确认 | GUI 自定义连接器中信任 MCP | `/hooks` 或 Settings → Hooks 信任四个 hooks | 无；重启应用后新建会话 |
+| wrapper / 配置 | `pd-memory-workbuddy` / `config.json` | `pd-memory-codex` / `codex.json` | `pd-memory-dsh` / `dsh.json` |
+| 备份目录 | `installations/` | `installations/codex/` | `installations/deepseek-harness/` |
+| 最高验证级别（见[范式](playbook.md#6-验证阶梯)） | V6：WorkBuddy 5.8.3 GUI，但 GUI SessionEnd 未通过 | V3：Codex CLI 0.154.0、0.163.0 解析配置并保留信任；真实模型与真实会话未验证 | V5：桌面版 0.2.1-rc.2 运行时（V4）与 Qwen 真实模型；真实会话未验证 |
 
 规划中（**未实现、未验证**，以下只是接入时要确认的差异）：
 
@@ -74,9 +80,13 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 | Qwen Code、Trae | 命令 hooks + MCP，接近直接复用 | 配置文件位置、超时、transcript 格式 |
 | Gemini CLI | 命令 hooks + MCP | 事件改名（BeforeAgent / AfterAgent / PreCompress），在 `normalize` 中映射 |
 | Kimi | 命令 hooks + MCP | 无 `transcript_path`：`has_transcript = false` |
-| OpenCode、DeepSeek Harness | JS / Cordis 插件放在 `integrations/<host>/`，调用 `pd-memory hook --host <id>` | 插件负责把宿主事件转成 hook JSON |
+| OpenCode | JS 插件放在 `integrations/<host>/`，调用 `pd-memory hook --host <id>` | 插件负责把宿主事件转成 hook JSON |
+| DeepSeek Harness（升到 L2） | Cordis 插件桥 `integrations/deepseek-harness/` | 自带的 hooks 桥没有 transcript 和结束事件，见 [deepseek-harness.md](deepseek-harness.md#为什么还没有自动捕获) |
 
 ## 新增宿主
+
+先按[范式](playbook.md)完成宿主画像，确定接入等级，下面是落地要改的文件。只接 MCP（L0）的宿主只需要第 3、4 步，
+`HOOK_ARGS` 设为 `None`。
 
 1. **Rust 适配器**：新建 `crates/pd-memory-hooks/src/hosts/<id>.rs`，实现 `HostAdapter`
    （`id`、`label`、`caps`、`normalize`；输出 schema 或 transcript 格式不同时再覆盖 `render`、
@@ -89,9 +99,11 @@ stdin JSON ─parse─> HookInput ─HostAdapter::normalize─> CanonicalEvent
 
    `tests/host_contract.rs` 遍历所有已注册宿主，缺夹具即失败。
 3. **安装器**：新建 `scripts/install/hosts/<id>.py`（接口见 `common.py` 顶部说明），把 `<id>`
-   加入 `common.HOSTS`。JSON `mcpServers` 用 `common.merge_mcp_servers`；Claude Code 风格 hooks 用
-   `common.merge_hooks`（`in_place=True` 用于按位置记录信任的宿主）。写入的 hook 命令建议用
-   `hook --host <id>`。新宿主的备份放在 `installations/<id>/`。
+   加入 `common.HOSTS`（id 里的 `-` 在模块文件名中写成 `_`）。JSON `mcpServers` 用 `common.merge_mcp_servers`；
+   Claude Code 风格 hooks 用 `common.merge_hooks`（`in_place=True` 用于按位置记录信任的宿主）；
+   TOML 参考 `hosts/codex.py`，标准库无法解析的 YAML 参考 `hosts/deepseek_harness.py`（带标记的文本块，
+   再交给宿主自己的解析器校验）。写入的 hook 命令建议用 `hook --host <id>`。新宿主的备份放在 `installations/<id>/`。
+   完成后 `scripts/install.sh --host <id> --apply` 必须能一条命令完成安装，参数与其他宿主一致。
 4. **文档**：新建 `docs/hosts/<id>.md`，并在上面的能力对照表加一列。
 
 不变量：
