@@ -68,12 +68,20 @@ impl Harness {
             .stderr(Stdio::piped())
             .spawn()
             .expect("spawn pd-memory");
-        child
+        // A rejected invocation can exit before reading stdin; the closed pipe
+        // is not a test failure, the exit status is what callers assert on.
+        if let Err(error) = child
             .stdin
             .as_mut()
             .expect("stdin")
             .write_all(stdin.as_bytes())
-            .expect("write stdin");
+        {
+            assert_eq!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe,
+                "write stdin: {error}"
+            );
+        }
         child.wait_with_output().expect("wait pd-memory")
     }
 
