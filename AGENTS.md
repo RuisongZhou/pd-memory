@@ -13,7 +13,8 @@ is the memory core in a separate PilotDeck checkout; see `upstream.json` and
 - Android core/FFI must build and run on Android. Building with the NDK (r26+,
   via `cargo-ndk`) is fine, so dependencies that compile C/C++ are allowed; do
   not spawn processes or install signal handlers in that graph.
-  `scripts/android-check.sh` needs an NDK toolchain once C code is in the graph.
+  `scripts/android-check.sh` checks default features with plain `cargo check`;
+  once a default dependency compiles C it needs the NDK's clang (or `cargo ndk`).
 - `cargo test` must be deterministic and offline. Use injected models and temp dirs.
 - Preserve local user changes and never publish credentials or generated memory.
 

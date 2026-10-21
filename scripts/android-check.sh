@@ -8,9 +8,11 @@
 # test -p pd-memory-ffi` exercises the same code paths natively.
 #
 # Building without the NDK is not a project requirement: Android support only
-# has to build and run with one. If a dependency that compiles C/C++ enters the
-# default graph, this check needs an NDK toolchain as well (cargo-ndk sets one
-# up); scripts/android-build.sh is the full build.
+# has to build and run with one. This script calls plain `cargo check`, so once
+# a dependency that compiles C/C++ enters the default graph it needs the NDK's
+# clang: export CC_<target>/AR_<target> pointing at the NDK toolchain, or run
+# `cargo ndk -t <abi> check -p pd-memory-ffi` instead. scripts/android-build.sh
+# is the full build.
 #
 # Usage:  ./scripts/android-check.sh
 # Exit code: 0 only when all three target checks pass.
